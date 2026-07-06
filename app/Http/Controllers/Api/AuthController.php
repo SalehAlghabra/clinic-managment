@@ -200,4 +200,26 @@ class AuthController extends Controller
             'message' => 'FCM token updated successfully',
         ]);
     }
+
+    // تحديث الملف الشخصي
+    public function updateProfile(Request $request)
+    {
+        $request->validate([
+            'name'  => 'sometimes|string|max:255',
+            'phone' => 'sometimes|nullable|string|max:20',
+        ]);
+
+        $user = $request->user();
+
+        $updateData = [];
+        if ($request->has('name'))  $updateData['name']  = $request->name;
+        if ($request->has('phone')) $updateData['phone'] = $request->phone;
+
+        $user->update($updateData);
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user'    => $user->fresh(),
+        ]);
+    }
 }

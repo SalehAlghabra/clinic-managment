@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-// use App\Models\WalletTransaction;
+use App\Models\WalletTransaction;
 use App\Services\WalletService;
 use App\Services\FirebaseService;
 use Illuminate\Http\Request;
@@ -70,4 +70,15 @@ public function deposit(Request $request, $userId)
         'wallet_balance' => $patient->fresh()->wallet_balance,
     ]);
 }
+
+    // سجل معاملات المحفظة للمريض الحالي
+    public function transactions(Request $request)
+    {
+        $transactions = WalletTransaction::where('user_id', $request->user()->id)
+            ->with('appointment:id,appointment_date,appointment_time')
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        return response()->json($transactions);
+    }
 }

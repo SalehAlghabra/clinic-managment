@@ -12,6 +12,8 @@ class Invoice extends Model
     protected $fillable = [
         'appointment_id',
         'total_amount',
+        'deposit_amount',
+        'remaining_amount',
         'payment_status',
         'payment_method',
         'issued_at',
