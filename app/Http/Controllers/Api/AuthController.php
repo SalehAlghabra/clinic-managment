@@ -31,16 +31,24 @@ class AuthController extends Controller
             'role'     => 'patient',
         ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        // توليد OTP وتحديث حقول التحقق
+        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $user->update([
+            'otp_code'       => Hash::make($otp),
+            'otp_expires_at' => Carbon::now()->addMinutes(10),
+        ]);
+
+        // إرسال OTP عبر البريد الإلكتروني
+        Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
-            'message' => 'User registered successfully',
-            'user'    => $user,
-            'token'   => $token,
+            'message'  => 'Registration successful. OTP sent to your email.',
+            'email'    => $user->email,
+            'verified' => false,
         ], 201);
     }
 
-    // تسجيل الدخول - إرسال OTP
+    // تسجيل الدخول - تحقق مباشر إذا كان مفعلًا، وإلا أرسل OTP
     public function login(Request $request)
     {
         $request->validate([
@@ -56,21 +64,31 @@ class AuthController extends Controller
             ]);
         }
 
-        // توليد OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        // إذا كان الحساب مفعلًا، قم بالدخول مباشرة
+        if ($user->email_verified_at !== null) {
+            $token = $user->createToken('auth_token')->plainTextToken;
 
-        // حفظ OTP في قاعدة البيانات
+            return response()->json([
+                'message'  => 'Login successful',
+                'user'     => $user,
+                'token'    => $token,
+                'verified' => true,
+            ]);
+        }
+
+        // إذا لم يكن الحساب مفعلًا، قم بتوليد OTP وإرساله للتحقق
+        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $user->update([
             'otp_code'       => Hash::make($otp),
             'otp_expires_at' => Carbon::now()->addMinutes(10),
         ]);
 
-        // إرسال OTP على البريد
         Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
-            'message' => 'OTP sent to your email. Please verify to complete login.',
-            'email'   => $user->email,
+            'message'  => 'Email not verified. OTP sent to your email. Please verify to complete login.',
+            'email'    => $user->email,
+            'verified' => false,
         ]);
     }
 
@@ -98,20 +116,21 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid OTP code.'], 422);
         }
 
-        // مسح OTP بعد التحقق
+        // مسح OTP بعد التحقق وتفعيل الحساب
         $user->update([
-            'otp_code'     => null,
-            'otp_expires_at' => null,
+            'otp_code'          => null,
+            'otp_expires_at'    => null,
+            'email_verified_at' => Carbon::now(),
         ]);
-
 
         // إعطاء الـ token
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Login successful',
-            'user'    => $user,
-            'token'   => $token,
+            'message'  => 'Login successful',
+            'user'     => $user,
+            'token'    => $token,
+            'verified' => true,
         ]);
     }
 
