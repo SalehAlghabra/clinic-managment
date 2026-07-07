@@ -34,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me',          [AuthController::class, 'me']);
     Route::put('/auth/profile',     [AuthController::class, 'updateProfile']);
     Route::post('/auth/fcm-token',  [AuthController::class, 'updateFcmToken']);
+    Route::get('/doctors/{doctorId}/available-slots',  [AppointmentController::class, 'availableSlots']);
 
     // المريض فقط
     Route::middleware('role:patient')->group(function () {
@@ -63,7 +64,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // الأدمن والدكتور
     Route::middleware('role:admin,doctor')->group(function () {
         Route::get('/medical-records/{id}',                [MedicalRecordController::class, 'show']);
-        Route::get('/doctors/{doctorId}/available-slots',  [AppointmentController::class, 'availableSlots']);
     });
 
     // الأدمن والموظف
