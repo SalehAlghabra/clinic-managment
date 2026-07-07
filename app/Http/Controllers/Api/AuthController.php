@@ -48,7 +48,7 @@ class AuthController extends Controller
         ], 201);
     }
 
-    // تسجيل الدخول - تحقق مباشر إذا كان مفعلًا، وإلا أرسل OTP
+    // تسجيل الدخول - توليد OTP وإرساله للتحقق
     public function login(Request $request)
     {
         $request->validate([
@@ -64,19 +64,7 @@ class AuthController extends Controller
             ]);
         }
 
-        // إذا كان الحساب مفعلًا، قم بالدخول مباشرة
-        if ($user->email_verified_at !== null) {
-            $token = $user->createToken('auth_token')->plainTextToken;
-
-            return response()->json([
-                'message'  => 'Login successful',
-                'user'     => $user,
-                'token'    => $token,
-                'verified' => true,
-            ]);
-        }
-
-        // إذا لم يكن الحساب مفعلًا، قم بتوليد OTP وإرساله للتحقق
+        // توليد OTP وإرساله للتحقق لكل عملية دخول
         $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $user->update([
             'otp_code'       => Hash::make($otp),
@@ -86,7 +74,7 @@ class AuthController extends Controller
         Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
-            'message'  => 'Email not verified. OTP sent to your email. Please verify to complete login.',
+            'message'  => 'OTP sent to your email. Please verify to complete login.',
             'email'    => $user->email,
             'verified' => false,
         ]);
