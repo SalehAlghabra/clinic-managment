@@ -153,6 +153,8 @@ public function store(Request $request)
                     'service'        => $invoice->appointment->service->service_name,
                     'visit_date'     => $invoice->appointment->appointment_date,
                     'total_amount'   => $invoice->total_amount,
+                    'deposit_amount'  => $invoice->deposit_amount,
+                    'remaining_amount'=> $invoice->remaining_amount,
                     'payment_status' => $invoice->payment_status,
                     'payment_method' => $invoice->payment_method,
                     'issued_at'      => $invoice->issued_at,
