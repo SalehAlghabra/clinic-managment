@@ -88,8 +88,11 @@ public function preview(Request $request)
             return response()->json(['message' => 'Doctor is not available on this day'], 422);
         }
 
-        if ($request->appointment_time < $schedule->start_time ||
-            $request->appointment_time >= $schedule->end_time) {
+        $startTimeStr = substr($schedule->start_time, 0, 5);
+        $endTimeStr   = substr($schedule->end_time, 0, 5);
+
+        if ($request->appointment_time < $startTimeStr ||
+            $request->appointment_time >= $endTimeStr) {
             return response()->json(['message' => 'Appointment time is outside doctor working hours'], 422);
         }
 

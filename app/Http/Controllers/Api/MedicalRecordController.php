@@ -43,9 +43,9 @@ class MedicalRecordController extends Controller
             return response()->json(['message' => 'Appointment not found'], 404);
         }
 
-        if ($appointment->status !== 'confirmed') {
+        if ($appointment->status === 'completed' || $appointment->status === 'cancelled') {
             return response()->json([
-                'message' => 'Appointment must be confirmed before creating medical record'
+                'message' => 'Cannot create medical record for completed or cancelled appointment'
             ], 422);
         }
 
@@ -68,7 +68,7 @@ class MedicalRecordController extends Controller
         $appointment->update(['status' => 'completed']);
 
         // إشعار للمريض
-        if ($appointment->patient->fcm_token) {
+        if ($appointment->patient && $appointment->patient->fcm_token) {
             $this->firebase->sendNotification(
                 $appointment->patient->fcm_token,
                 'Medical Record Created 📋',
@@ -79,7 +79,16 @@ class MedicalRecordController extends Controller
 
         return response()->json([
             'message' => 'Medical record created successfully',
-            'record'  => $record,
+            'record'  => [
+                'id'            => $record->id,
+                'visit_date'    => $record->visit_date,
+                'doctor_name'   => $request->user()->name,
+                'patient_name'  => $appointment->patient ? $appointment->patient->name : '',
+                'symptoms'      => $record->symptoms,
+                'diagnosis'     => $record->diagnosis,
+                'doctor_notes'  => $record->doctor_notes,
+                'prescriptions' => [],
+            ],
         ], 201);
     }
 
@@ -128,7 +137,13 @@ class MedicalRecordController extends Controller
 
         return response()->json([
             'message'      => 'Prescription added successfully',
-            'prescription' => $prescription,
+            'prescription' => [
+                'id'              => $prescription->id,
+                'medication_name' => $prescription->medication_name,
+                'dosage'          => $prescription->dosage,
+                'duration'        => $prescription->duration,
+                'instructions'    => $prescription->instructions,
+            ],
         ], 201);
     }
 
