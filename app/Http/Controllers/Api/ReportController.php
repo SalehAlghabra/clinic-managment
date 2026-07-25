@@ -154,6 +154,7 @@ class ReportController extends Controller
             })->where('payment_status', 'paid')->sum('total_amount');
 
             return [
+                'id'                 => $doctor->id,
                 'doctor_name'        => $doctor->user->name,
                 'specialization'     => $doctor->specialization,
                 'total_appointments' => $appointments->count(),
@@ -181,6 +182,7 @@ class ReportController extends Controller
                                              ->where('type', 'penalty')
                                              ->sum('amount');
                 return [
+                    'id'              => $patient->id,
                     'patient_name'    => $patient->name,
                     'email'           => $patient->email,
                     'violation_count' => $patient->violation_count,
