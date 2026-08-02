@@ -33,28 +33,55 @@ class WalletService
         return true;
     }
 
-    // خصم عند الحجز
-    public function deductBookingDeposit(User $user, int $appointmentId): bool
+    // خصم عند الحجز (رسوم الكشفية)
+    public function deductBookingDeposit(User $user, int $appointmentId, float $amount): bool
     {
-        $depositAmount = (float) Setting::get('booking_deposit', 50);
-
-        if ($user->wallet_balance < $depositAmount) {
+        if ($amount <= 0 || $user->wallet_balance < $amount) {
             return false;
         }
 
-        DB::transaction(function () use ($user, $depositAmount, $appointmentId) {
+        DB::transaction(function () use ($user, $amount, $appointmentId) {
             $balanceBefore = $user->wallet_balance;
-            $balanceAfter  = $balanceBefore - $depositAmount;
+            $balanceAfter  = $balanceBefore - $amount;
 
             $user->update(['wallet_balance' => $balanceAfter]);
 
             WalletTransaction::create([
                 'user_id'        => $user->id,
                 'type'           => 'booking_deduct',
-                'amount'         => $depositAmount,
+                'amount'         => $amount,
                 'balance_before' => $balanceBefore,
                 'balance_after'  => $balanceAfter,
-                'description'    => 'Booking deposit deducted',
+                'description'    => 'Consultation fee deducted',
+                'appointment_id' => $appointmentId,
+            ]);
+        });
+
+        return true;
+    }
+
+    // دفع المتبقي من الفاتورة عن طريق المحفظة
+    public function payInvoiceFromWallet(User $user, int $appointmentId, float $amount, string $description = 'Invoice payment from wallet'): bool
+    {
+        if ($amount <= 0) return true;
+
+        if ($user->wallet_balance < $amount) {
+            return false;
+        }
+
+        DB::transaction(function () use ($user, $amount, $appointmentId, $description) {
+            $balanceBefore = $user->wallet_balance;
+            $balanceAfter  = $balanceBefore - $amount;
+
+            $user->update(['wallet_balance' => $balanceAfter]);
+
+            WalletTransaction::create([
+                'user_id'        => $user->id,
+                'type'           => 'booking_deduct',
+                'amount'         => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after'  => $balanceAfter,
+                'description'    => $description,
                 'appointment_id' => $appointmentId,
             ]);
         });
@@ -63,20 +90,20 @@ class WalletService
     }
 
     // استرداد كامل
-    public function refundFull(User $user, int $appointmentId, string $description = 'Full refund'): bool
+    public function refundFull(User $user, int $appointmentId, float $amount, string $description = 'Full refund'): bool
     {
-        $depositAmount = (float) Setting::get('booking_deposit', 50);
+        if ($amount <= 0) return true;
 
-        DB::transaction(function () use ($user, $depositAmount, $appointmentId, $description) {
+        DB::transaction(function () use ($user, $amount, $appointmentId, $description) {
             $balanceBefore = $user->wallet_balance;
-            $balanceAfter  = $balanceBefore + $depositAmount;
+            $balanceAfter  = $balanceBefore + $amount;
 
             $user->update(['wallet_balance' => $balanceAfter]);
 
             WalletTransaction::create([
                 'user_id'        => $user->id,
                 'type'           => 'refund_full',
-                'amount'         => $depositAmount,
+                'amount'         => $amount,
                 'balance_before' => $balanceBefore,
                 'balance_after'  => $balanceAfter,
                 'description'    => $description,
@@ -88,18 +115,19 @@ class WalletService
     }
 
     // استرداد جزئي مع غرامة تصاعدية
-    public function refundWithPenalty(User $user, int $appointmentId): bool
+    public function refundWithPenalty(User $user, int $appointmentId, float $amount): bool
     {
-        $depositAmount  = (float) Setting::get('booking_deposit', 50);
-        $maxPenalty     = (float) Setting::get('max_penalty_percentage', 25);
+        if ($amount <= 0) return true;
+
+        $maxPenalty = (float) Setting::get('max_penalty_percentage', 25);
 
         // حساب نسبة الغرامة بناءً على عدد المخالفات
         $violationCount  = $user->violation_count + 1;
         $penaltyRate     = min($violationCount * 5, $maxPenalty);
-        $penaltyAmount   = $depositAmount * ($penaltyRate / 100);
-        $refundAmount    = $depositAmount - $penaltyAmount;
+        $penaltyAmount   = $amount * ($penaltyRate / 100);
+        $refundAmount    = $amount - $penaltyAmount;
 
-        DB::transaction(function () use ($user, $refundAmount, $penaltyAmount, $depositAmount, $appointmentId, $penaltyRate, $violationCount) {
+        DB::transaction(function () use ($user, $refundAmount, $penaltyAmount, $amount, $appointmentId, $penaltyRate, $violationCount) {
             $balanceBefore = $user->wallet_balance;
             $balanceAfter  = $balanceBefore + $refundAmount;
 
@@ -140,10 +168,5 @@ class WalletService
     {
         return (float) $user->wallet_balance;
     }
-
-    // جلب المبلغ المبدئي للحجز
-    public function getDepositAmount(): float
-    {
-        return (float) Setting::get('booking_deposit', 50);
-    }
 }
+

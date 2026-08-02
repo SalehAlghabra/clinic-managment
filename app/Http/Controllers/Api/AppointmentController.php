@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\DoctorDetail;
 use App\Models\DoctorSchedule;
-use App\Models\Service;
+use App\Models\Invoice;
 use App\Models\Setting;
 use App\Services\FirebaseService;
 use App\Services\WalletService;
@@ -23,61 +23,53 @@ class AppointmentController extends Controller
         $this->firebase = $firebase;
         $this->wallet   = $wallet;
     }
+
     // معاينة الحجز قبل التأكيد
-public function preview(Request $request)
-{
-    $request->validate([
-        'doctor_id'        => 'required|exists:doctor_details,id',
-        'service_id'       => 'required|exists:services,id',
-        'appointment_date' => 'required|date|after_or_equal:today',
-        'appointment_time' => 'required|date_format:H:i',
-    ]);
+    public function preview(Request $request)
+    {
+        $request->validate([
+            'doctor_id'        => 'required|exists:doctor_details,id',
+            'appointment_date' => 'required|date|after_or_equal:today',
+            'appointment_time' => 'required|date_format:H:i',
+        ]);
 
-    $depositAmount  = $this->wallet->getDepositAmount();
-    $walletBalance  = $request->user()->wallet_balance;
-    $afterBalance   = $walletBalance - $depositAmount;
-    $hasSufficient  = $walletBalance >= $depositAmount;
+        $doctor = DoctorDetail::with('user')->find($request->doctor_id);
+        $consultationFee = (float) $doctor->consultation_fee;
+        $walletBalance   = (float) $request->user()->wallet_balance;
+        $afterBalance    = $walletBalance - $consultationFee;
+        $hasSufficient   = $walletBalance >= $consultationFee;
 
-    $service = Service::find($request->service_id);
-
-    return response()->json([
-        'booking_summary' => [
-            'service_name'      => $service->service_name,
-            'service_price'     => $service->price,
-            'appointment_date'  => $request->appointment_date,
-            'appointment_time'  => $request->appointment_time,
-        ],
-        'payment_summary' => [
-            'deposit_required'  => $depositAmount,
-            'wallet_balance'    => $walletBalance,
-            'balance_after'     => $hasSufficient ? $afterBalance : null,
-            'remaining_at_visit'=> $service->price - $depositAmount,
-            'has_sufficient'    => $hasSufficient,
-        ],
-        'message' => $hasSufficient
-            ? "Amount {$depositAmount} will be deducted from your wallet upon confirmation"
-            : "Insufficient balance. Please charge your wallet with at least {$depositAmount}",
-    ]);
-}
+        return response()->json([
+            'booking_summary' => [
+                'doctor_name'      => $doctor->user->name,
+                'specialization'   => $doctor->specialization,
+                'consultation_fee' => $consultationFee,
+                'appointment_date' => $request->appointment_date,
+                'appointment_time' => $request->appointment_time,
+            ],
+            'payment_summary' => [
+                'consultation_fee' => $consultationFee,
+                'wallet_balance'   => $walletBalance,
+                'balance_after'    => $hasSufficient ? $afterBalance : null,
+                'has_sufficient'   => $hasSufficient,
+            ],
+            'message' => $hasSufficient
+                ? "Consultation fee {$consultationFee} will be deducted from your wallet upon confirmation"
+                : "Insufficient balance. Please charge your wallet with at least {$consultationFee}",
+        ]);
+    }
 
     // حجز موعد (المريض فقط)
     public function store(Request $request)
     {
         $request->validate([
             'doctor_id'        => 'required|exists:doctor_details,id',
-            'service_id'       => 'required|exists:services,id',
             'appointment_date' => 'required|date|after_or_equal:today',
             'appointment_time' => 'required|date_format:H:i',
             'notes'            => 'nullable|string',
         ]);
 
-        $service = Service::where('id', $request->service_id)
-                          ->where('doctor_id', $request->doctor_id)
-                          ->first();
-
-        if (!$service) {
-            return response()->json(['message' => 'This service does not belong to this doctor'], 422);
-        }
+        $doctor = DoctorDetail::with('user')->find($request->doctor_id);
 
         $dayOfWeek = strtolower(date('l', strtotime($request->appointment_date)));
         $schedule  = DoctorSchedule::where('doctor_id', $request->doctor_id)
@@ -117,11 +109,11 @@ public function preview(Request $request)
         }
 
         // التحقق من رصيد المحفظة
-        $depositAmount = $this->wallet->getDepositAmount();
-        if ($request->user()->wallet_balance < $depositAmount) {
+        $consultationFee = (float) $doctor->consultation_fee;
+        if ($request->user()->wallet_balance < $consultationFee) {
             return response()->json([
                 'message'        => 'Insufficient wallet balance',
-                'required'       => $depositAmount,
+                'required'       => $consultationFee,
                 'current_balance'=> $request->user()->wallet_balance,
             ], 422);
         }
@@ -129,19 +121,19 @@ public function preview(Request $request)
         $appointment = Appointment::create([
             'patient_id'       => $request->user()->id,
             'doctor_id'        => $request->doctor_id,
-            'service_id'       => $request->service_id,
+            'consultation_fee' => $consultationFee,
             'appointment_date' => $request->appointment_date,
             'appointment_time' => $request->appointment_time,
             'notes'            => $request->notes,
             'status'           => 'pending',
         ]);
 
-        // خصم المبلغ المبدئي من المحفظة
-        $this->wallet->deductBookingDeposit($request->user(), $appointment->id);
+        // خصم رسوم الكشفية من المحفظة
+        $this->wallet->deductBookingDeposit($request->user(), $appointment->id, $consultationFee);
 
         // إشعار للدكتور
-        $doctorUser = $appointment->doctor->user;
-        if ($doctorUser->fcm_token) {
+        $doctorUser = $doctor->user;
+        if ($doctorUser && $doctorUser->fcm_token) {
             $this->firebase->sendNotification(
                 $doctorUser->fcm_token,
                 'New Appointment Request 📅',
@@ -151,10 +143,10 @@ public function preview(Request $request)
         }
 
         return response()->json([
-            'message'         => 'Appointment booked successfully',
-            'appointment'     => $appointment,
-            'deposit_paid'    => $depositAmount,
-            'wallet_balance'  => $request->user()->fresh()->wallet_balance,
+            'message'          => 'Appointment booked successfully',
+            'appointment'      => $appointment,
+            'consultation_fee' => $consultationFee,
+            'wallet_balance'   => $request->user()->fresh()->wallet_balance,
         ], 201);
     }
 
@@ -204,7 +196,7 @@ public function preview(Request $request)
     // عرض مواعيد المريض
     public function patientAppointments(Request $request)
     {
-        $appointments = Appointment::with(['doctor.user', 'service'])
+        $appointments = Appointment::with(['doctor.user'])
             ->where('patient_id', $request->user()->id)
             ->orderBy('appointment_date', 'desc')
             ->get()
@@ -213,8 +205,9 @@ public function preview(Request $request)
                     'id'               => $appointment->id,
                     'doctor_name'      => $appointment->doctor->user->name,
                     'specialization'   => $appointment->doctor->specialization,
-                    'service'          => $appointment->service->service_name,
-                    'price'            => $appointment->service->price,
+                    'consultation_fee' => (float) $appointment->consultation_fee,
+                    'additional_cost'  => (float) $appointment->additional_cost,
+                    'additional_note'  => $appointment->additional_note,
                     'appointment_date' => $appointment->appointment_date,
                     'appointment_time' => $appointment->appointment_time,
                     'status'           => $appointment->status,
@@ -234,7 +227,7 @@ public function preview(Request $request)
             return response()->json(['message' => 'Doctor profile not found'], 404);
         }
 
-        $appointments = Appointment::with(['patient', 'service'])
+        $appointments = Appointment::with(['patient'])
             ->where('doctor_id', $doctorDetail->id)
             ->orderBy('appointment_date', 'desc')
             ->get()
@@ -243,7 +236,9 @@ public function preview(Request $request)
                     'id'               => $appointment->id,
                     'patient_name'     => $appointment->patient->name,
                     'patient_phone'    => $appointment->patient->phone,
-                    'service'          => $appointment->service->service_name,
+                    'consultation_fee' => (float) $appointment->consultation_fee,
+                    'additional_cost'  => (float) $appointment->additional_cost,
+                    'additional_note'  => $appointment->additional_note,
                     'appointment_date' => $appointment->appointment_date,
                     'appointment_time' => $appointment->appointment_time,
                     'status'           => $appointment->status,
@@ -258,7 +253,9 @@ public function preview(Request $request)
     public function updateStatus(Request $request, $id)
     {
         $request->validate([
-            'status' => 'required|in:confirmed,rejected,completed',
+            'status'          => 'required|in:confirmed,rejected,completed',
+            'additional_cost' => 'nullable|numeric|min:0',
+            'additional_note' => 'nullable|string',
         ]);
 
         $doctorDetail = DoctorDetail::where('user_id', $request->user()->id)->first();
@@ -275,11 +272,12 @@ public function preview(Request $request)
             return response()->json(['message' => 'Appointment not found'], 404);
         }
 
-        // إذا رفض الدكتور الموعد يرجع المبلغ كاملاً
+        // إذا رفض الدكتور الموعد يرجع الكشفية كاملة
         if ($request->status === 'rejected') {
             $this->wallet->refundFull(
                 $appointment->patient,
                 $appointment->id,
+                (float) $appointment->consultation_fee,
                 'Refund: appointment rejected by doctor'
             );
 
@@ -288,32 +286,68 @@ public function preview(Request $request)
                 $this->firebase->sendNotification(
                     $appointment->patient->fcm_token,
                     'Appointment Rejected ❌',
-                    'Your appointment was rejected. Your deposit has been refunded.',
+                    'Your appointment was rejected. Your consultation fee has been refunded.',
                     ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_rejected']
                 );
             }
-        } else {
-            // إشعار للمريض بالتأكيد أو الاكتمال
-            $statusMessages = [
-                'confirmed' => 'Your appointment has been confirmed ✅',
-                'completed' => 'Your visit has been completed 🎉',
-            ];
+        } elseif ($request->status === 'completed') {
+            $additionalCost = (float) ($request->additional_cost ?? 0);
+            $additionalNote = $request->additional_note;
 
+            $appointment->update([
+                'status'          => 'completed',
+                'additional_cost' => $additionalCost,
+                'additional_note' => $additionalNote,
+            ]);
+
+            // الإنشاء التلقائي للفاتورة عند اكتمال الموعد
+            $consultationFee = (float) $appointment->consultation_fee;
+            $totalAmount     = $consultationFee + $additionalCost;
+            $depositAmount   = $consultationFee; // مدفوع مسبقاً
+            $remainingAmount = $additionalCost;
+            $paymentStatus   = ($remainingAmount == 0) ? 'paid' : 'unpaid';
+            $paymentMethod   = ($remainingAmount == 0) ? 'wallet' : null;
+
+            Invoice::updateOrCreate(
+                ['appointment_id' => $appointment->id],
+                [
+                    'total_amount'     => $totalAmount,
+                    'deposit_amount'   => $depositAmount,
+                    'remaining_amount' => $remainingAmount,
+                    'payment_status'   => $paymentStatus,
+                    'payment_method'   => $paymentMethod,
+                    'issued_at'        => now(),
+                ]
+            );
+
+            // إشعار للمريض
             if ($appointment->patient->fcm_token) {
                 $this->firebase->sendNotification(
                     $appointment->patient->fcm_token,
-                    'Appointment Update',
-                    $statusMessages[$request->status],
-                    ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_status', 'status' => $request->status]
+                    'Appointment Completed 🎉',
+                    "Your visit has been completed. Remaining balance: {$remainingAmount}",
+                    ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_status', 'status' => 'completed']
+                );
+            }
+        } else {
+            // confirmed
+            if ($appointment->patient->fcm_token) {
+                $this->firebase->sendNotification(
+                    $appointment->patient->fcm_token,
+                    'Appointment Confirmed ✅',
+                    'Your appointment has been confirmed',
+                    ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_status', 'status' => 'confirmed']
                 );
             }
         }
 
-        $appointment->update(['status' => $request->status]);
+        if ($request->status !== 'completed') {
+            $appointment->update(['status' => $request->status]);
+        }
 
         return response()->json([
             'message'     => 'Appointment status updated successfully',
-            'appointment' => $appointment,
+            'appointment' => $appointment->fresh(),
         ]);
     }
 
@@ -340,12 +374,14 @@ public function preview(Request $request)
         $cancellationHours   = (int) Setting::get('cancellation_hours', 24);
         $appointmentDateTime = Carbon::parse($appointment->appointment_date . ' ' . $appointment->appointment_time);
         $hoursUntilAppointment = Carbon::now()->diffInHours($appointmentDateTime, false);
+        $consultationFee     = (float) $appointment->consultation_fee;
 
         if ($hoursUntilAppointment > $cancellationHours) {
             // إلغاء قبل الوقت المحدد → استرداد كامل
             $this->wallet->refundFull(
                 $request->user(),
                 $appointment->id,
+                $consultationFee,
                 'Full refund: cancelled before deadline'
             );
             $refundMessage = 'Full refund processed ✅';
@@ -353,7 +389,8 @@ public function preview(Request $request)
             // إلغاء بعد الوقت المحدد → استرداد مع غرامة
             $this->wallet->refundWithPenalty(
                 $request->user(),
-                $appointment->id
+                $appointment->id,
+                $consultationFee
             );
             $violationCount = $request->user()->fresh()->violation_count;
             $penaltyRate    = min($violationCount * 5, (float) Setting::get('max_penalty_percentage', 25));
@@ -369,7 +406,7 @@ public function preview(Request $request)
 
         // إشعار للدكتور
         $doctorUser = $appointment->doctor->user;
-        if ($doctorUser->fcm_token) {
+        if ($doctorUser && $doctorUser->fcm_token) {
             $this->firebase->sendNotification(
                 $doctorUser->fcm_token,
                 'Appointment Cancelled ❌',
@@ -415,6 +452,7 @@ public function preview(Request $request)
             $this->wallet->refundFull(
                 $appointment->patient,
                 $appointment->id,
+                (float) $appointment->consultation_fee,
                 'Full refund: doctor cancelled appointments for the day'
             );
 
@@ -447,7 +485,7 @@ public function preview(Request $request)
     // عرض كل المواعيد (الأدمن)
     public function index()
     {
-        $appointments = Appointment::with(['patient', 'doctor.user', 'service'])
+        $appointments = Appointment::with(['patient', 'doctor.user'])
             ->orderBy('appointment_date', 'desc')
             ->get()
             ->map(function ($appointment) {
@@ -455,7 +493,9 @@ public function preview(Request $request)
                     'id'               => $appointment->id,
                     'patient_name'     => $appointment->patient->name,
                     'doctor_name'      => $appointment->doctor->user->name,
-                    'service'          => $appointment->service->service_name,
+                    'consultation_fee' => (float) $appointment->consultation_fee,
+                    'additional_cost'  => (float) $appointment->additional_cost,
+                    'additional_note'  => $appointment->additional_note,
                     'appointment_date' => $appointment->appointment_date,
                     'appointment_time' => $appointment->appointment_time,
                     'status'           => $appointment->status,

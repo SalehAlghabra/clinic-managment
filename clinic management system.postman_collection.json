@@ -937,7 +937,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n    \"doctor_id\": 2 ,\r\n    \"service_id\": 5,\r\n    \"appointment_date\": \"2026-07-06\",\r\n    \"appointment_time\": \"10:40\",\r\n    \"notes\": \"First visit\"\r\n}",
+              "raw": "{\r\n    \"doctor_id\": 2,\r\n    \"appointment_date\": \"2026-07-06\",\r\n    \"appointment_time\": \"10:40\",\r\n    \"notes\": \"First visit\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"

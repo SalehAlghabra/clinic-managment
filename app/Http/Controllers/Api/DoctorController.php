@@ -14,12 +14,16 @@ class DoctorController extends Controller
     {
         $doctors = DoctorDetail::with('user')->get()->map(function ($doctor) {
             return [
-                'id'             => $doctor->id,
-                'name'           => $doctor->user->name,
-                'email'          => $doctor->user->email,
-                'phone'          => $doctor->user->phone,
-                'specialization' => $doctor->specialization,
-                'bio'            => $doctor->bio,
+                'id'                  => $doctor->id,
+                'user_id'             => $doctor->user_id,
+                'name'                => $doctor->user->name,
+                'email'               => $doctor->user->email,
+                'phone'               => $doctor->user->phone,
+                'profile_picture'     => $doctor->user->profile_picture,
+                'profile_picture_url' => $doctor->user->profile_picture_url,
+                'specialization'      => $doctor->specialization,
+                'bio'                 => $doctor->bio,
+                'consultation_fee'    => (float) $doctor->consultation_fee,
             ];
         });
 
@@ -36,12 +40,16 @@ class DoctorController extends Controller
         }
 
         return response()->json([
-            'id'             => $doctor->id,
-            'name'           => $doctor->user->name,
-            'email'          => $doctor->user->email,
-            'phone'          => $doctor->user->phone,
-            'specialization' => $doctor->specialization,
-            'bio'            => $doctor->bio,
+            'id'                  => $doctor->id,
+            'user_id'             => $doctor->user_id,
+            'name'                => $doctor->user->name,
+            'email'               => $doctor->user->email,
+            'phone'               => $doctor->user->phone,
+            'profile_picture'     => $doctor->user->profile_picture,
+            'profile_picture_url' => $doctor->user->profile_picture_url,
+            'specialization'      => $doctor->specialization,
+            'bio'                 => $doctor->bio,
+            'consultation_fee'    => (float) $doctor->consultation_fee,
         ]);
     }
 
@@ -49,9 +57,10 @@ class DoctorController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'user_id'        => 'required|exists:users,id',
-            'specialization' => 'required|string|max:255',
-            'bio'            => 'nullable|string',
+            'user_id'          => 'required|exists:users,id',
+            'specialization'   => 'required|string|max:255',
+            'bio'              => 'nullable|string',
+            'consultation_fee' => 'required|numeric|min:0',
         ]);
 
         // التحقق أن المستخدم دكتور
@@ -70,9 +79,10 @@ class DoctorController extends Controller
         }
 
         $doctor = DoctorDetail::create([
-            'user_id'        => $request->user_id,
-            'specialization' => $request->specialization,
-            'bio'            => $request->bio,
+            'user_id'          => $request->user_id,
+            'specialization'   => $request->specialization,
+            'bio'              => $request->bio,
+            'consultation_fee' => $request->consultation_fee,
         ]);
 
         return response()->json([
@@ -91,17 +101,19 @@ class DoctorController extends Controller
         }
 
         $request->validate([
-            'specialization' => 'sometimes|string|max:255',
-            'bio'            => 'nullable|string',
+            'specialization'   => 'sometimes|string|max:255',
+            'bio'              => 'nullable|string',
+            'consultation_fee' => 'sometimes|numeric|min:0',
         ]);
 
-        $doctor->update($request->only(['specialization', 'bio']));
+        $doctor->update($request->only(['specialization', 'bio', 'consultation_fee']));
 
         return response()->json([
             'message' => 'Doctor updated successfully',
             'doctor'  => $doctor,
         ]);
     }
+
 
     // حذف دكتور (الأدمن فقط)
     public function destroy($id)

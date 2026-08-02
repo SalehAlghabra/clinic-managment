@@ -13,11 +13,25 @@ class Appointment extends Model
         'patient_id',
         'doctor_id',
         'service_id',
+        'consultation_fee',
         'appointment_date',
         'appointment_time',
         'status',
         'notes',
+        'additional_cost',
+        'additional_note',
+        'cancellation_reason',
+        'cancelled_by',
+        'cancelled_at',
     ];
+
+    protected $casts = [
+        'consultation_fee' => 'decimal:2',
+        'additional_cost'  => 'decimal:2',
+        'appointment_date' => 'date',
+        'cancelled_at'     => 'datetime',
+    ];
+
 
     // علاقة: الموعد ينتمي لمريض
     public function patient()

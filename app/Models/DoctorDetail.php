@@ -13,7 +13,13 @@ class DoctorDetail extends Model
         'user_id',
         'specialization',
         'bio',
+        'consultation_fee',
     ];
+
+    protected $casts = [
+        'consultation_fee' => 'decimal:2',
+    ];
+
 
     // علاقة: تفاصيل الدكتور تنتمي لمستخدم
     public function user()
