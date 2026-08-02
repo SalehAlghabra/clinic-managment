@@ -71,6 +71,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/invoices',                           [InvoiceController::class, 'store']);
         Route::get('/invoices/{appointmentId}',            [InvoiceController::class, 'show']);
         Route::patch('/invoices/{id}/payment',             [InvoiceController::class, 'updatePayment']);
+        Route::get('/reports/patients',                    [ReportController::class, 'patientsReport']);
+        Route::post('/wallet/deposit/{userId}',            [WalletController::class, 'deposit']);
     });
 
     // الأدمن فقط
@@ -81,7 +83,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/revenue',              [ReportController::class, 'revenueReport']);
         Route::get('/reports/doctors',              [ReportController::class, 'doctorsReport']);
         Route::get('/reports/violations',           [ReportController::class, 'violationsReport']);
-        Route::post('/wallet/deposit/{userId}',    [WalletController::class, 'deposit']);
         Route::post('/auth/create-staff',          [AuthController::class, 'createStaff']);
         Route::get('/appointments',                [AppointmentController::class, 'index']);
         Route::get('/invoices',                    [InvoiceController::class, 'index']);

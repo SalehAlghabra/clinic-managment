@@ -31,12 +31,12 @@ class ReportController extends Controller
 
             // إحصائيات المواعيد
             'appointments' => [
-                'total'          => Appointment::count(),
-                'today'          => Appointment::whereDate('appointment_date', $today)->count(),
-                'pending'        => Appointment::where('status', 'pending')->count(),
-                'confirmed'      => Appointment::where('status', 'confirmed')->count(),
-                'completed'      => Appointment::where('status', 'completed')->count(),
-                'cancelled'      => Appointment::where('status', 'cancelled')->count(),
+                'total'                => Appointment::count(),
+                'today'                => Appointment::whereDate('appointment_date', $today)->count(),
+                'pending'              => Appointment::where('status', 'pending')->count(),
+                'confirmed'            => Appointment::where('status', 'confirmed')->count(),
+                'completed'            => Appointment::where('status', 'completed')->count(),
+                'cancelled'            => Appointment::where('status', 'cancelled')->count(),
                 'cancelled_by_doctor'  => Appointment::where('cancelled_by', 'doctor')->count(),
                 'cancelled_by_patient' => Appointment::where('cancelled_by', 'patient')->count(),
             ],
@@ -61,7 +61,7 @@ class ReportController extends Controller
             'to'   => 'required|date|after_or_equal:from',
         ]);
 
-        $appointments = Appointment::with(['patient', 'doctor.user', 'service'])
+        $appointments = Appointment::with(['patient', 'doctor.user'])
             ->whereBetween('appointment_date', [$request->from, $request->to])
             ->get();
 
@@ -77,9 +77,11 @@ class ReportController extends Controller
         $data = $appointments->map(function ($appointment) {
             return [
                 'id'               => $appointment->id,
-                'patient_name'     => $appointment->patient->name,
-                'doctor_name'      => $appointment->doctor->user->name,
-                'service'          => $appointment->service->service_name,
+                'patient_name'     => $appointment->patient->name ?? 'Unknown Patient',
+                'doctor_name'      => $appointment->doctor->user->name ?? 'Unknown Doctor',
+                'consultation_fee' => $appointment->consultation_fee,
+                'additional_cost'  => $appointment->additional_cost,
+                'additional_note'  => $appointment->additional_note,
                 'appointment_date' => $appointment->appointment_date,
                 'appointment_time' => $appointment->appointment_time,
                 'status'           => $appointment->status,
@@ -101,7 +103,7 @@ class ReportController extends Controller
             'to'   => 'required|date|after_or_equal:from',
         ]);
 
-        $invoices = Invoice::with('appointment.doctor.user', 'appointment.service', 'appointment.patient')
+        $invoices = Invoice::with('appointment.doctor.user', 'appointment.patient')
             ->whereBetween('issued_at', [
                 Carbon::parse($request->from)->startOfDay(),
                 Carbon::parse($request->to)->endOfDay(),
@@ -114,18 +116,22 @@ class ReportController extends Controller
             'pending_payments' => $invoices->where('payment_status', 'unpaid')->sum('total_amount'),
             'cash_payments'    => $invoices->where('payment_method', 'cash')->sum('total_amount'),
             'online_payments'  => $invoices->where('payment_method', 'online')->sum('total_amount'),
+            'wallet_payments'  => $invoices->where('payment_method', 'wallet')->sum('total_amount'),
         ];
 
         $data = $invoices->map(function ($invoice) {
             return [
-                'id'             => $invoice->id,
-                'patient_name'   => $invoice->appointment->patient->name,
-                'doctor_name'    => $invoice->appointment->doctor->user->name,
-                'service'        => $invoice->appointment->service->service_name,
-                'total_amount'   => $invoice->total_amount,
-                'payment_status' => $invoice->payment_status,
-                'payment_method' => $invoice->payment_method,
-                'issued_at'      => $invoice->issued_at,
+                'id'               => $invoice->id,
+                'appointment_id'   => $invoice->appointment_id,
+                'patient_name'     => $invoice->appointment->patient->name ?? 'N/A',
+                'doctor_name'      => $invoice->appointment->doctor->user->name ?? 'N/A',
+                'consultation_fee' => $invoice->appointment->consultation_fee ?? $invoice->deposit_amount,
+                'total_amount'     => $invoice->total_amount,
+                'already_paid'     => $invoice->deposit_amount,
+                'remaining_amount' => $invoice->remaining_amount,
+                'payment_status'   => $invoice->payment_status,
+                'payment_method'   => $invoice->payment_method ?? 'cash',
+                'issued_at'        => $invoice->issued_at,
             ];
         });
 
@@ -155,8 +161,9 @@ class ReportController extends Controller
 
             return [
                 'id'                 => $doctor->id,
-                'doctor_name'        => $doctor->user->name,
+                'doctor_name'        => $doctor->user->name ?? 'N/A',
                 'specialization'     => $doctor->specialization,
+                'consultation_fee'   => $doctor->consultation_fee,
                 'total_appointments' => $appointments->count(),
                 'completed'          => $appointments->where('status', 'completed')->count(),
                 'cancelled'          => $appointments->where('status', 'cancelled')->count(),
@@ -194,6 +201,41 @@ class ReportController extends Controller
         return response()->json([
             'total_violators' => $patients->count(),
             'patients'        => $patients,
+        ]);
+    }
+
+    // تقرير وقائمة المرضى (مع بحث)
+    public function patientsReport(Request $request)
+    {
+        $query = User::where('role', 'patient');
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        $patients = $query->orderBy('name')->get()->map(function ($patient) {
+            $penalties = WalletTransaction::where('user_id', $patient->id)
+                                         ->where('type', 'penalty')
+                                         ->sum('amount');
+            return [
+                'id'              => $patient->id,
+                'patient_name'    => $patient->name,
+                'email'           => $patient->email,
+                'phone'           => $patient->phone ?? '',
+                'wallet_balance'  => (float) $patient->wallet_balance,
+                'violation_count' => (int) $patient->violation_count,
+                'total_penalties' => (float) $penalties,
+            ];
+        });
+
+        return response()->json([
+            'total'    => $patients->count(),
+            'patients' => $patients,
         ]);
     }
 }
