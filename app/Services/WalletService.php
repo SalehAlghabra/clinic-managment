@@ -168,5 +168,11 @@ class WalletService
     {
         return (float) $user->wallet_balance;
     }
+
+    // جلب مبلغ الشحن المخفض / الإيداع
+    public function getDepositAmount(): float
+    {
+        return (float) Setting::get('deposit_amount', 0);
+    }
 }
 
