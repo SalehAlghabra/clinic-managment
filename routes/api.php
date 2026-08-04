@@ -53,7 +53,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // الدكتور فقط
     Route::middleware('role:doctor')->group(function () {
         Route::get('/appointments/doctor',                 [AppointmentController::class, 'doctorAppointments']);
-        Route::patch('/appointments/{id}/status',          [AppointmentController::class, 'updateStatus']);
         Route::post('/medical-records',                    [MedicalRecordController::class, 'store']);
         Route::post('/medical-records/{id}/prescriptions', [MedicalRecordController::class, 'addPrescription']);
 
@@ -63,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // الأدمن والدكتور
     Route::middleware('role:admin,doctor')->group(function () {
+        Route::patch('/appointments/{id}/status',          [AppointmentController::class, 'updateStatus']);
         Route::get('/medical-records/{id}',                [MedicalRecordController::class, 'show']);
     });
 

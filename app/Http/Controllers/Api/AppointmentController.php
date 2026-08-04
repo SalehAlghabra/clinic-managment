@@ -372,7 +372,10 @@ class AppointmentController extends Controller
 
         // التحقق من وقت الإلغاء
         $cancellationHours   = (int) Setting::get('cancellation_hours', 24);
-        $appointmentDateTime = Carbon::parse($appointment->appointment_date . ' ' . $appointment->appointment_time);
+        $dateStr             = is_a($appointment->appointment_date, \Carbon\Carbon::class)
+            ? $appointment->appointment_date->format('Y-m-d')
+            : substr((string)$appointment->appointment_date, 0, 10);
+        $appointmentDateTime = Carbon::parse($dateStr . ' ' . $appointment->appointment_time);
         $hoursUntilAppointment = Carbon::now()->diffInHours($appointmentDateTime, false);
         $consultationFee     = (float) $appointment->consultation_fee;
 
