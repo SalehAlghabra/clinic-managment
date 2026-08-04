@@ -7,6 +7,7 @@ use App\Mail\OtpMail;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
@@ -38,7 +39,8 @@ class AuthController extends Controller
             'otp_expires_at' => Carbon::now()->addMinutes(10),
         ]);
 
-        // إرسال OTP عبر البريد الإلكتروني
+        // إرسال OTP عبر البريد الإلكتروني وتسجيله محلياً للاختبار
+        Log::info("OTP generated for {$user->email}: {$otp}");
         Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
@@ -71,6 +73,7 @@ class AuthController extends Controller
             'otp_expires_at' => Carbon::now()->addMinutes(10),
         ]);
 
+        Log::info("OTP generated for {$user->email}: {$otp}");
         Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
@@ -143,6 +146,7 @@ class AuthController extends Controller
             'otp_expires_at' => Carbon::now()->addMinutes(10),
         ]);
 
+        Log::info("OTP generated for {$user->email}: {$otp}");
         Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
@@ -276,6 +280,7 @@ class AuthController extends Controller
             'otp_expires_at' => Carbon::now()->addMinutes(10),
         ]);
 
+        Log::info("OTP generated for {$user->email}: {$otp}");
         Mail::to($user->email)->send(new OtpMail($otp, $user->name));
 
         return response()->json([
