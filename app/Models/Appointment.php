@@ -28,7 +28,7 @@ class Appointment extends Model
     protected $casts = [
         'consultation_fee' => 'decimal:2',
         'additional_cost'  => 'decimal:2',
-        'appointment_date' => 'date',
+        'appointment_date' => 'date:Y-m-d',
         'cancelled_at'     => 'datetime',
     ];
 
