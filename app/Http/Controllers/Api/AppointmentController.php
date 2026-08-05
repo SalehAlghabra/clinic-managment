@@ -134,12 +134,24 @@ class AppointmentController extends Controller
         // إشعار للدكتور
         $doctorUser = $doctor->user;
         if ($doctorUser && $doctorUser->fcm_token) {
-            $this->firebase->sendNotification(
-                $doctorUser->fcm_token,
-                'New Appointment Request 📅',
-                "Patient {$request->user()->name} booked on {$request->appointment_date} at {$request->appointment_time}",
-                ['appointment_id' => (string)$appointment->id, 'type' => 'new_appointment']
-            );
+            $fcm = $this->firebase;
+            $token = $doctorUser->fcm_token;
+            $userName = $request->user()->name;
+            $date = $request->appointment_date;
+            $time = $request->appointment_time;
+            $apptId = (string)$appointment->id;
+            app()->terminating(function () use ($fcm, $token, $userName, $date, $time, $apptId) {
+                try {
+                    $fcm->sendNotification(
+                        $token,
+                        'New Appointment Request 📅',
+                        "Patient {$userName} booked on {$date} at {$time}",
+                        ['appointment_id' => $apptId, 'type' => 'new_appointment']
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('FCM async error: ' . $e->getMessage());
+                }
+            });
         }
 
         return response()->json([
@@ -410,12 +422,23 @@ class AppointmentController extends Controller
         // إشعار للدكتور
         $doctorUser = $appointment->doctor->user;
         if ($doctorUser && $doctorUser->fcm_token) {
-            $this->firebase->sendNotification(
-                $doctorUser->fcm_token,
-                'Appointment Cancelled ❌',
-                "Patient {$request->user()->name} cancelled the appointment on {$appointment->appointment_date}",
-                ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_cancelled']
-            );
+            $fcm = $this->firebase;
+            $token = $doctorUser->fcm_token;
+            $userName = $request->user()->name;
+            $date = (string)$appointment->appointment_date;
+            $apptId = (string)$appointment->id;
+            app()->terminating(function () use ($fcm, $token, $userName, $date, $apptId) {
+                try {
+                    $fcm->sendNotification(
+                        $token,
+                        'Appointment Cancelled ❌',
+                        "Patient {$userName} cancelled the appointment on {$date}",
+                        ['appointment_id' => $apptId, 'type' => 'appointment_cancelled']
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('FCM async error: ' . $e->getMessage());
+                }
+            });
         }
 
         return response()->json([

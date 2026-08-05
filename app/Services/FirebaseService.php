@@ -37,7 +37,7 @@ class FirebaseService
 
         $jwt = JWT::encode($payload, $credentials['private_key'], 'RS256');
 
-        $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
+        $response = Http::timeout(3)->connectTimeout(2)->asForm()->post('https://oauth2.googleapis.com/token', [
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion'  => $jwt,
         ]);
@@ -58,7 +58,7 @@ class FirebaseService
             // تحويل data values إلى strings
             $stringData = array_map('strval', $data);
 
-            $response = Http::withHeaders([
+            $response = Http::timeout(3)->connectTimeout(2)->withHeaders([
                 'Authorization' => 'Bearer ' . $accessToken,
                 'Content-Type'  => 'application/json',
             ])->post($this->fcmUrl, [
