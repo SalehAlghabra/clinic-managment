@@ -59,7 +59,7 @@ public function deposit(Request $request, $userId)
         $this->firebase->sendNotification(
             $patient->fcm_token,
             'Wallet Charged 💰',
-            "Your wallet has been charged with {$request->amount}",
+            "Your wallet has been charged with \${$request->amount}",
             ['type' => 'wallet_deposit']
         );
     }
