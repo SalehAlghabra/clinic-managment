@@ -160,14 +160,16 @@ class ReportController extends Controller
             })->where('payment_status', 'paid')->sum('total_amount');
 
             return [
-                'id'                 => $doctor->id,
-                'doctor_name'        => $doctor->user->name ?? 'N/A',
-                'specialization'     => $doctor->specialization,
-                'consultation_fee'   => $doctor->consultation_fee,
-                'total_appointments' => $appointments->count(),
-                'completed'          => $appointments->where('status', 'completed')->count(),
-                'cancelled'          => $appointments->where('status', 'cancelled')->count(),
-                'revenue'            => $revenue,
+                'id'                  => $doctor->id,
+                'doctor_name'         => $doctor->user->name ?? 'N/A',
+                'profile_picture'     => $doctor->user->profile_picture ?? null,
+                'profile_picture_url' => $doctor->user->profile_picture_url ?? null,
+                'specialization'      => $doctor->specialization,
+                'consultation_fee'    => $doctor->consultation_fee,
+                'total_appointments'  => $appointments->count(),
+                'completed'           => $appointments->where('status', 'completed')->count(),
+                'cancelled'           => $appointments->where('status', 'cancelled')->count(),
+                'revenue'             => $revenue,
             ];
         });
 
@@ -189,12 +191,14 @@ class ReportController extends Controller
                                              ->where('type', 'penalty')
                                              ->sum('amount');
                 return [
-                    'id'              => $patient->id,
-                    'patient_name'    => $patient->name,
-                    'email'           => $patient->email,
-                    'violation_count' => $patient->violation_count,
-                    'total_penalties' => $penalties,
-                    'penalty_rate'    => min($patient->violation_count * 5, 25) . '%',
+                    'id'                  => $patient->id,
+                    'patient_name'        => $patient->name,
+                    'profile_picture'     => $patient->profile_picture,
+                    'profile_picture_url' => $patient->profile_picture_url,
+                    'email'               => $patient->email,
+                    'violation_count'     => $patient->violation_count,
+                    'total_penalties'     => $penalties,
+                    'penalty_rate'        => min($patient->violation_count * 5, 25) . '%',
                 ];
             });
 
@@ -223,13 +227,15 @@ class ReportController extends Controller
                                          ->where('type', 'penalty')
                                          ->sum('amount');
             return [
-                'id'              => $patient->id,
-                'patient_name'    => $patient->name,
-                'email'           => $patient->email,
-                'phone'           => $patient->phone ?? '',
-                'wallet_balance'  => (float) $patient->wallet_balance,
-                'violation_count' => (int) $patient->violation_count,
-                'total_penalties' => (float) $penalties,
+                'id'                  => $patient->id,
+                'patient_name'        => $patient->name,
+                'profile_picture'     => $patient->profile_picture,
+                'profile_picture_url' => $patient->profile_picture_url,
+                'email'               => $patient->email,
+                'phone'               => $patient->phone ?? '',
+                'wallet_balance'      => (float) $patient->wallet_balance,
+                'violation_count'     => (int) $patient->violation_count,
+                'total_penalties'     => (float) $penalties,
             ];
         });
 
