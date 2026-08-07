@@ -108,18 +108,26 @@ class AppointmentController extends Controller
             return response()->json(['message' => 'This time slot is already booked'], 422);
         }
 
+        $patient = $request->user();
+        if ($request->filled('patient_id') && in_array($request->user()->role, ['admin', 'receptionist'])) {
+            $targetPatient = \App\Models\User::where('role', 'patient')->find($request->patient_id);
+            if ($targetPatient) {
+                $patient = $targetPatient;
+            }
+        }
+
         // التحقق من رصيد المحفظة
         $consultationFee = (float) $doctor->consultation_fee;
-        if ($request->user()->wallet_balance < $consultationFee) {
+        if ($patient->wallet_balance < $consultationFee) {
             return response()->json([
-                'message'        => 'Insufficient wallet balance',
+                'message'        => 'Insufficient patient wallet balance',
                 'required'       => $consultationFee,
-                'current_balance'=> $request->user()->wallet_balance,
+                'current_balance'=> $patient->wallet_balance,
             ], 422);
         }
 
         $appointment = Appointment::create([
-            'patient_id'       => $request->user()->id,
+            'patient_id'       => $patient->id,
             'doctor_id'        => $request->doctor_id,
             'consultation_fee' => $consultationFee,
             'appointment_date' => $request->appointment_date,
@@ -129,16 +137,34 @@ class AppointmentController extends Controller
         ]);
 
         // خصم رسوم الكشفية من المحفظة
-        $this->wallet->deductBookingDeposit($request->user(), $appointment->id, $consultationFee);
+        $this->wallet->deductBookingDeposit($patient, $appointment->id, $consultationFee);
+
+        // إشعار للمريض
+        app(\App\Services\NotificationService::class)->notify(
+            $patient,
+            'appointment_booked',
+            'تم حجز الموعد بنجاح 📅',
+            'Appointment Booked Successfully 📅',
+            "تم حجز موعدك بتاريخ {$request->appointment_date} الساعة {$request->appointment_time}",
+            "Your appointment was booked for {$request->appointment_date} at {$request->appointment_time}",
+            'appointment',
+            $appointment->id,
+            ['appointment_id' => (string)$appointment->id]
+        );
 
         // إشعار للدكتور
         $doctorUser = $doctor->user;
-        if ($doctorUser && $doctorUser->fcm_token) {
-            $this->firebase->sendNotification(
-                $doctorUser->fcm_token,
+        if ($doctorUser) {
+            app(\App\Services\NotificationService::class)->notify(
+                $doctorUser,
+                'appointment_booked',
+                'طلب موعد جديد 📅',
                 'New Appointment Request 📅',
-                "Patient {$request->user()->name} booked on {$request->appointment_date} at {$request->appointment_time}",
-                ['appointment_id' => (string)$appointment->id, 'type' => 'new_appointment']
+                "قام المريض {$patient->name} بحجز موعد بتاريخ {$request->appointment_date} الساعة {$request->appointment_time}",
+                "Patient {$patient->name} booked on {$request->appointment_date} at {$request->appointment_time}",
+                'appointment',
+                $appointment->id,
+                ['appointment_id' => (string)$appointment->id]
             );
         }
 
@@ -146,7 +172,7 @@ class AppointmentController extends Controller
             'message'          => 'Appointment booked successfully',
             'appointment'      => $appointment,
             'consultation_fee' => $consultationFee,
-            'wallet_balance'   => $request->user()->fresh()->wallet_balance,
+            'wallet_balance'   => $patient->fresh()->wallet_balance,
         ], 201);
     }
 
@@ -282,14 +308,17 @@ class AppointmentController extends Controller
             );
 
             // إشعار للمريض
-            if ($appointment->patient->fcm_token) {
-                $this->firebase->sendNotification(
-                    $appointment->patient->fcm_token,
-                    'Appointment Rejected ❌',
-                    'Your appointment was rejected. Your consultation fee has been refunded.',
-                    ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_rejected']
-                );
-            }
+            app(\App\Services\NotificationService::class)->notify(
+                $appointment->patient,
+                'appointment_rejected',
+                'تم رفض الموعد ❌',
+                'Appointment Rejected ❌',
+                'تم رفض طلب الموعد وإرجاع رسوم الكشفية إلى محفظتك.',
+                'Your appointment was rejected. Your consultation fee has been refunded.',
+                'appointment',
+                $appointment->id,
+                ['appointment_id' => (string)$appointment->id]
+            );
         } elseif ($request->status === 'completed') {
             $additionalCost = (float) ($request->additional_cost ?? 0);
             $additionalNote = $request->additional_note;
@@ -321,24 +350,30 @@ class AppointmentController extends Controller
             );
 
             // إشعار للمريض
-            if ($appointment->patient->fcm_token) {
-                $this->firebase->sendNotification(
-                    $appointment->patient->fcm_token,
-                    'Appointment Completed 🎉',
-                    "Your visit has been completed. Remaining balance: {$remainingAmount}",
-                    ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_status', 'status' => 'completed']
-                );
-            }
+            app(\App\Services\NotificationService::class)->notify(
+                $appointment->patient,
+                'appointment_completed',
+                'تم إكمال الزيارة 🎉',
+                'Appointment Completed 🎉',
+                "تم إتمام زيارتك الطبية. المبلغ المتبقي: \${$remainingAmount}",
+                "Your visit has been completed. Remaining balance: \${$remainingAmount}",
+                'appointment',
+                $appointment->id,
+                ['appointment_id' => (string)$appointment->id]
+            );
         } else {
             // confirmed
-            if ($appointment->patient->fcm_token) {
-                $this->firebase->sendNotification(
-                    $appointment->patient->fcm_token,
-                    'Appointment Confirmed ✅',
-                    'Your appointment has been confirmed',
-                    ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_status', 'status' => 'confirmed']
-                );
-            }
+            app(\App\Services\NotificationService::class)->notify(
+                $appointment->patient,
+                'appointment_confirmed',
+                'تم تأكيد الموعد ✅',
+                'Appointment Confirmed ✅',
+                "تم تأكيد موعدك الطبي بتاريخ {$appointment->appointment_date}",
+                "Your appointment on {$appointment->appointment_date} has been confirmed",
+                'appointment',
+                $appointment->id,
+                ['appointment_id' => (string)$appointment->id]
+            );
         }
 
         if ($request->status !== 'completed') {
@@ -358,9 +393,15 @@ class AppointmentController extends Controller
             'cancellation_reason' => 'nullable|string',
         ]);
 
-        $appointment = Appointment::where('id', $id)
-                                  ->where('patient_id', $request->user()->id)
-                                  ->first();
+        $user = $request->user();
+        if (in_array($user->role, ['admin', 'receptionist'])) {
+            $appointment = Appointment::with('patient')->find($id);
+        } else {
+            $appointment = Appointment::with('patient')
+                                      ->where('id', $id)
+                                      ->where('patient_id', $user->id)
+                                      ->first();
+        }
 
         if (!$appointment) {
             return response()->json(['message' => 'Appointment not found'], 404);
@@ -368,6 +409,15 @@ class AppointmentController extends Controller
 
         if (!in_array($appointment->status, ['pending', 'confirmed'])) {
             return response()->json(['message' => 'Cannot cancel this appointment'], 422);
+        }
+
+        if ($user->role === 'receptionist' && $appointment->status === 'confirmed') {
+            return response()->json(['message' => 'Receptionists cannot cancel confirmed appointments'], 403);
+        }
+
+        $patient = $appointment->patient;
+        if (!$patient) {
+            return response()->json(['message' => 'Patient account not found'], 404);
         }
 
         // التحقق من وقت الإلغاء
@@ -379,23 +429,23 @@ class AppointmentController extends Controller
         $hoursUntilAppointment = Carbon::now()->diffInHours($appointmentDateTime, false);
         $consultationFee     = (float) $appointment->consultation_fee;
 
-        if ($hoursUntilAppointment > $cancellationHours) {
-            // إلغاء قبل الوقت المحدد → استرداد كامل
+        if ($hoursUntilAppointment > $cancellationHours || in_array($user->role, ['admin', 'receptionist'])) {
+            // إلغاء قبل الوقت المحدد أو بواسطة الموظف → استرداد كامل
             $this->wallet->refundFull(
-                $request->user(),
+                $patient,
                 $appointment->id,
                 $consultationFee,
-                'Full refund: cancelled before deadline'
+                'Full refund: cancelled appointment #' . $appointment->id
             );
             $refundMessage = 'Full refund processed ✅';
         } else {
             // إلغاء بعد الوقت المحدد → استرداد مع غرامة
             $this->wallet->refundWithPenalty(
-                $request->user(),
+                $patient,
                 $appointment->id,
                 $consultationFee
             );
-            $violationCount = $request->user()->fresh()->violation_count;
+            $violationCount = $patient->fresh()->violation_count;
             $penaltyRate    = min($violationCount * 5, (float) Setting::get('max_penalty_percentage', 25));
             $refundMessage  = "Partial refund with {$penaltyRate}% penalty ⚠️";
         }
@@ -403,25 +453,102 @@ class AppointmentController extends Controller
         $appointment->update([
             'status'              => 'cancelled',
             'cancellation_reason' => $request->cancellation_reason,
-            'cancelled_by'        => 'patient',
+            'cancelled_by'        => $user->role,
             'cancelled_at'        => now(),
         ]);
 
-        // إشعار للدكتور
+        // إشعار للمريض عند الإلغاء
+        app(\App\Services\NotificationService::class)->notify(
+            $patient,
+            'appointment_cancelled',
+            'تم إلغاء الموعد ❌',
+            'Appointment Cancelled ❌',
+            "تم إلغاء موعدك بتاريخ {$appointment->appointment_date}",
+            "Your appointment on {$appointment->appointment_date} has been cancelled",
+            'appointment',
+            $appointment->id,
+            ['appointment_id' => (string)$appointment->id]
+        );
+
+        // إشعار للدكتور (فقط إذا لم يكن الدكتور هو من قام بالإلغاء بنفسه)
         $doctorUser = $appointment->doctor->user;
-        if ($doctorUser && $doctorUser->fcm_token) {
-            $this->firebase->sendNotification(
-                $doctorUser->fcm_token,
+        if ($doctorUser && $user->id !== $doctorUser->id) {
+            app(\App\Services\NotificationService::class)->notify(
+                $doctorUser,
+                'appointment_cancelled',
+                'تم إلغاء الموعد ❌',
                 'Appointment Cancelled ❌',
-                "Patient {$request->user()->name} cancelled the appointment on {$appointment->appointment_date}",
-                ['appointment_id' => (string)$appointment->id, 'type' => 'appointment_cancelled']
+                "تم إلغاء الموعد رقم #{$appointment->id} بتاريخ {$appointment->appointment_date}",
+                "Appointment #{$appointment->id} cancelled on {$appointment->appointment_date}",
+                'appointment',
+                $appointment->id,
+                ['appointment_id' => (string)$appointment->id]
             );
         }
 
         return response()->json([
             'message'        => 'Appointment cancelled successfully',
             'refund_status'  => $refundMessage,
-            'wallet_balance' => $request->user()->fresh()->wallet_balance,
+            'wallet_balance' => $patient->fresh()->wallet_balance,
+        ]);
+    }
+
+    // إعادة جدولة الموعد
+    public function reschedule(Request $request, $id)
+    {
+        $request->validate([
+            'appointment_date' => 'required|date|after_or_equal:today',
+            'appointment_time' => 'required|date_format:H:i',
+        ]);
+
+        $user = $request->user();
+        $appointment = Appointment::with(['patient', 'doctor.user'])->find($id);
+        if (!$appointment) {
+            return response()->json(['message' => 'Appointment not found'], 404);
+        }
+
+        if ($appointment->status === 'completed' || $appointment->status === 'cancelled') {
+            return response()->json(['message' => 'Cannot reschedule completed or cancelled appointments'], 422);
+        }
+
+        if ($user->role === 'receptionist' && $appointment->status === 'confirmed') {
+            return response()->json(['message' => 'Receptionists cannot reschedule confirmed appointments'], 403);
+        }
+
+        // Slot availability
+        $exists = Appointment::where('doctor_id', $appointment->doctor_id)
+                             ->where('appointment_date', $request->appointment_date)
+                             ->where('appointment_time', $request->appointment_time)
+                             ->where('id', '!=', $appointment->id)
+                             ->whereIn('status', ['pending', 'confirmed'])
+                             ->exists();
+
+        if ($exists) {
+            return response()->json(['message' => 'This time slot is already booked'], 422);
+        }
+
+        $appointment->update([
+            'appointment_date' => $request->appointment_date,
+            'appointment_time' => $request->appointment_time,
+        ]);
+
+        if ($appointment->patient) {
+            app(\App\Services\NotificationService::class)->notify(
+                $appointment->patient,
+                'appointment_rescheduled',
+                'تم إعادة جدولة الموعد 📅',
+                'Appointment Rescheduled 📅',
+                "تمت إعادة جدولة موعدك إلى {$request->appointment_date} الساعة {$request->appointment_time}",
+                "Your appointment has been rescheduled to {$request->appointment_date} at {$request->appointment_time}",
+                'appointment',
+                $appointment->id,
+                ['appointment_id' => (string)$appointment->id]
+            );
+        }
+
+        return response()->json([
+            'message'     => 'Appointment rescheduled successfully',
+            'appointment' => $appointment->fresh(),
         ]);
     }
 
@@ -440,9 +567,10 @@ class AppointmentController extends Controller
         }
 
         $appointments = Appointment::where('doctor_id', $doctorDetail->id)
-                                   ->where('appointment_date', $request->date)
-                                   ->whereIn('status', ['pending', 'confirmed'])
-                                   ->get();
+            ->where('appointment_date', $request->date)
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->with('patient')
+            ->get();
 
         if ($appointments->isEmpty()) {
             return response()->json(['message' => 'No appointments found for this day'], 404);
@@ -466,11 +594,14 @@ class AppointmentController extends Controller
                 'cancelled_at'        => now(),
             ]);
 
-            // إشعار لكل مريض
-            if ($appointment->patient->fcm_token) {
-                $this->firebase->sendNotification(
-                    $appointment->patient->fcm_token,
+            // إشعار لكل مريض متأثر فقط (لا يتم إرسال إشعار للدكتور المنفّذ للإلغاء)
+            if ($appointment->patient) {
+                app(\App\Services\NotificationService::class)->notify(
+                    $appointment->patient,
+                    'doctor_cancelled',
+                    'تم إلغاء الموعد من قبل الطبيب 📅',
                     'Appointment Cancelled 📅',
+                    "تم إلغاء موعدك بتاريخ {$request->date} من قبل الطبيب. تم إرجاع المبلغ كاملاً إلى محفظتك.",
                     "Your appointment on {$request->date} has been cancelled by the doctor. Full refund processed.",
                     ['appointment_id' => (string)$appointment->id, 'type' => 'doctor_cancelled']
                 );
@@ -485,21 +616,59 @@ class AppointmentController extends Controller
         ]);
     }
 
-    // عرض كل المواعيد (الأدمن)
-    public function index()
+    // عرض كل المواعيد (الأدمن والموظف)
+    public function index(Request $request)
     {
-        $appointments = Appointment::with(['patient', 'doctor.user'])
-            ->orderBy('appointment_date', 'desc')
+        $query = Appointment::with(['patient', 'doctor.user']);
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('patient', function ($pq) use ($search) {
+                    $pq->where('name', 'like', "%{$search}%")
+                       ->orWhere('email', 'like', "%{$search}%")
+                       ->orWhere('phone', 'like', "%{$search}%");
+                })->orWhereHas('doctor.user', function ($dq) use ($search) {
+                    $dq->where('name', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        if ($request->filled('doctor_id')) {
+            $query->where('doctor_id', $request->doctor_id);
+        }
+
+        if ($request->filled('date')) {
+            $query->whereDate('appointment_date', $request->date);
+        }
+
+        if ($request->boolean('today')) {
+            $query->whereDate('appointment_date', Carbon::today());
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $appointments = $query->orderBy('appointment_date', 'desc')
+            ->orderBy('appointment_time', 'asc')
             ->get()
             ->map(function ($appointment) {
                 return [
                     'id'               => $appointment->id,
-                    'patient_name'     => $appointment->patient->name,
-                    'doctor_name'      => $appointment->doctor->user->name,
+                    'patient_id'       => $appointment->patient_id,
+                    'patient_name'     => $appointment->patient->name ?? 'Unknown',
+                    'patient_email'    => $appointment->patient->email ?? '',
+                    'patient_phone'    => $appointment->patient->phone ?? '',
+                    'doctor_id'        => $appointment->doctor_id,
+                    'doctor_name'      => $appointment->doctor->user->name ?? 'Unknown',
+                    'specialization'   => $appointment->doctor->specialization ?? '',
                     'consultation_fee' => (float) $appointment->consultation_fee,
                     'additional_cost'  => (float) $appointment->additional_cost,
                     'additional_note'  => $appointment->additional_note,
-                    'appointment_date' => $appointment->appointment_date,
+                    'appointment_date' => is_a($appointment->appointment_date, \Carbon\Carbon::class)
+                        ? $appointment->appointment_date->format('Y-m-d')
+                        : (string)$appointment->appointment_date,
                     'appointment_time' => $appointment->appointment_time,
                     'status'           => $appointment->status,
                     'notes'            => $appointment->notes,

@@ -36,12 +36,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/fcm-token',  [AuthController::class, 'updateFcmToken']);
     Route::get('/doctors/{doctorId}/available-slots', [AppointmentController::class, 'availableSlots']);
 
+    // Notifications (All authenticated users)
+    Route::get('/notifications',      [\App\Http\Controllers\Api\NotificationController::class, 'index']);
+    Route::delete('/notifications/{id}', [\App\Http\Controllers\Api\NotificationController::class, 'destroy']);
+
+    // المريض، الأدمن، والموظف (حجز وإلغاء المواعيد)
+    Route::middleware('role:patient,admin,receptionist')->group(function () {
+        Route::post('/appointments',             [AppointmentController::class, 'store']);
+        Route::patch('/appointments/{id}/cancel',[AppointmentController::class, 'cancel']);
+    });
+
     // المريض فقط
     Route::middleware('role:patient')->group(function () {
         Route::post('/appointments/preview',     [AppointmentController::class, 'preview']);
-        Route::post('/appointments',             [AppointmentController::class, 'store']);
         Route::get('/appointments/my',           [AppointmentController::class, 'patientAppointments']);
-        Route::patch('/appointments/{id}/cancel',[AppointmentController::class, 'cancel']);
         Route::get('/medical-records/my',        [MedicalRecordController::class, 'patientRecords']);
         Route::get('/invoices/my',               [InvoiceController::class, 'patientInvoices']);
 
@@ -55,24 +63,30 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/appointments/doctor',                 [AppointmentController::class, 'doctorAppointments']);
         Route::post('/medical-records',                    [MedicalRecordController::class, 'store']);
         Route::post('/medical-records/{id}/prescriptions', [MedicalRecordController::class, 'addPrescription']);
-
-        // إلغاء مواعيد يوم محدد
         Route::patch('/appointments/cancel-day',           [AppointmentController::class, 'cancelDayAppointments']);
+        Route::patch('/appointments/{id}/status',          [AppointmentController::class, 'updateStatus']);
     });
 
     // الأدمن والدكتور
     Route::middleware('role:admin,doctor')->group(function () {
-        Route::patch('/appointments/{id}/status',          [AppointmentController::class, 'updateStatus']);
         Route::get('/medical-records/{id}',                [MedicalRecordController::class, 'show']);
     });
 
-    // الأدمن والموظف
+    // الأدمن والموظف (Receptionist)
     Route::middleware('role:admin,receptionist')->group(function () {
+        Route::get('/appointments',                        [AppointmentController::class, 'index']);
+        Route::patch('/appointments/{id}/reschedule',      [AppointmentController::class, 'reschedule']);
+        Route::get('/invoices',                            [InvoiceController::class, 'index']);
         Route::post('/invoices',                           [InvoiceController::class, 'store']);
         Route::get('/invoices/{appointmentId}',            [InvoiceController::class, 'show']);
         Route::patch('/invoices/{id}/payment',             [InvoiceController::class, 'updatePayment']);
         Route::get('/reports/patients',                    [ReportController::class, 'patientsReport']);
+        Route::post('/patients',                           [AuthController::class, 'registerPatient']);
+        Route::put('/patients/{id}',                       [AuthController::class, 'updatePatient']);
         Route::post('/wallet/deposit/{userId}',            [WalletController::class, 'deposit']);
+        Route::post('/wallet/deduct/{userId}',             [WalletController::class, 'deduct']);
+        Route::get('/wallet/transactions/{userId}',        [WalletController::class, 'patientTransactions']);
+        Route::get('/reports/doctors',                     [ReportController::class, 'doctorsReport']);
     });
 
     // الأدمن فقط
@@ -81,12 +95,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/dashboard',            [ReportController::class, 'dashboard']);
         Route::get('/reports/appointments',         [ReportController::class, 'appointmentsReport']);
         Route::get('/reports/revenue',              [ReportController::class, 'revenueReport']);
-        Route::get('/reports/doctors',              [ReportController::class, 'doctorsReport']);
         Route::get('/reports/violations',           [ReportController::class, 'violationsReport']);
         Route::post('/auth/create-staff',          [AuthController::class, 'createStaff']);
-        Route::get('/appointments',                [AppointmentController::class, 'index']);
-        Route::get('/invoices',                    [InvoiceController::class, 'index']);
         Route::patch('/settings',                  [SettingController::class, 'update']);
+
+        // Staff management
+        Route::get('/staff/receptionists',         [AuthController::class, 'listReceptionists']);
+        Route::delete('/staff/{id}',               [AuthController::class, 'deleteStaff']);
 
         // Doctor
         Route::post('/doctors',                    [DoctorController::class, 'store']);

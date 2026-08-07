@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Mail\OtpMail;
 use App\Models\User;
+use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -158,7 +159,11 @@ class AuthController extends Controller
     // تسجيل الخروج
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        if ($user) {
+            $user->update(['fcm_token' => null]);
+            $user->currentAccessToken()->delete();
+        }
 
         return response()->json([
             'message' => 'Logged out successfully',
@@ -196,19 +201,74 @@ class AuthController extends Controller
         ], 201);
     }
 
-    // تحديث FCM Token
+    // قائمة الموظفين الاستقبال (الأدمن فقط)
+    public function listReceptionists()
+    {
+        $receptionists = User::where('role', 'receptionist')
+            ->orderBy('name')
+            ->get()
+            ->map(function ($user) {
+                return [
+                    'id'                  => $user->id,
+                    'name'                => $user->name,
+                    'email'               => $user->email,
+                    'phone'               => $user->phone ?? '',
+                    'profile_picture'     => $user->profile_picture,
+                    'profile_picture_url' => $user->profile_picture_url,
+                    'created_at'          => $user->created_at?->toDateString(),
+                ];
+            });
+
+        return response()->json([
+            'total'         => $receptionists->count(),
+            'receptionists' => $receptionists,
+        ]);
+    }
+
+    // حذف حساب موظف (الأدمن فقط)
+    public function deleteStaff(Request $request, $id)
+    {
+        $staff = User::whereIn('role', ['receptionist', 'doctor'])->find($id);
+
+        if (!$staff) {
+            return response()->json(['message' => 'Staff member not found'], 404);
+        }
+
+        if ($staff->id === $request->user()->id) {
+            return response()->json(['message' => 'You cannot delete your own account'], 422);
+        }
+
+        $staff->delete();
+
+        return response()->json(['message' => 'Staff account deleted successfully']);
+    }
+
+    // تحديث FCM Token واللغة المفضلة للإشعارات
     public function updateFcmToken(Request $request)
     {
         $request->validate([
             'fcm_token' => 'required|string',
+            'locale'    => 'nullable|string|in:ar,en',
         ]);
 
-        $request->user()->update([
+        $user = $request->user();
+
+        // 1. إزالة Token من أي حساب آخر على نفس الجهاز
+        User::where('fcm_token', $request->fcm_token)
+            ->where('id', '!=', $user->id)
+            ->update(['fcm_token' => null]);
+
+        $localeHeader = strtolower($request->header('Accept-Language', 'en'));
+        $requestedLocale = $request->locale ?? (str_contains($localeHeader, 'ar') ? 'ar' : 'en');
+
+        // 2. تحديث Token واللغة للمستخدم الحالي
+        $user->update([
             'fcm_token' => $request->fcm_token,
+            'locale'    => $requestedLocale,
         ]);
 
         return response()->json([
-            'message' => 'FCM token updated successfully',
+            'message' => 'FCM token and language preference updated successfully',
         ]);
     }
 
@@ -342,6 +402,148 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password reset successfully. You can now login with your new password.',
+        ]);
+    }
+
+    // تسجيل مريض جديد من قبل الموظف أو الأدمن
+    public function registerPatient(Request $request)
+    {
+        $request->validate([
+            'name'           => 'required|string|max:255',
+            'email'          => 'required|email|unique:users,email',
+            'password'       => 'required|string|min:6|confirmed',
+            'phone'          => 'nullable|string|max:20',
+            'staff_override' => 'nullable|boolean',
+        ]);
+
+        $isOverride = $request->boolean('staff_override');
+
+        if ($isOverride) {
+            $patient = User::create([
+                'name'              => $request->name,
+                'email'             => $request->email,
+                'phone'             => $request->phone ?? '',
+                'password'          => Hash::make($request->password),
+                'role'              => 'patient',
+                'email_verified_at' => now(),
+            ]);
+
+            AuditLog::create([
+                'performed_by_id' => $request->user()->id,
+                'target_user_id'  => $patient->id,
+                'action'          => 'patient_register_staff_override',
+                'old_value'       => null,
+                'new_value'       => $patient->email,
+                'notes'           => 'Staff override in-person identity verification during registration',
+            ]);
+
+            return response()->json([
+                'message'      => 'Patient registered and verified successfully.',
+                'requires_otp' => false,
+                'patient'      => $patient,
+            ], 201);
+        }
+
+        $patient = User::create([
+            'name'              => $request->name,
+            'email'             => $request->email,
+            'phone'             => $request->phone ?? '',
+            'password'          => Hash::make($request->password),
+            'role'              => 'patient',
+            'email_verified_at' => null,
+        ]);
+
+        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $patient->update([
+            'otp_code'       => Hash::make($otp),
+            'otp_expires_at' => Carbon::now()->addMinutes(10),
+        ]);
+
+        Log::info("Registration OTP generated for {$patient->email}: {$otp}");
+        Mail::to($patient->email)->send(new OtpMail($otp, $patient->name));
+
+        return response()->json([
+            'message'      => 'Patient account created. OTP sent to patient email.',
+            'requires_otp' => true,
+            'patient_id'   => $patient->id,
+            'email'        => $patient->email,
+        ], 201);
+    }
+
+    // تعديل بيانات المريض من قبل الموظف أو الأدمن
+    public function updatePatient(Request $request, $id)
+    {
+        $patient = User::where('role', 'patient')->find($id);
+
+        if (!$patient) {
+            return response()->json(['message' => 'Patient not found'], 404);
+        }
+
+        $request->validate([
+            'name'           => 'required|string|max:255',
+            'email'          => 'required|email|unique:users,email,' . $id,
+            'phone'          => 'nullable|string|max:20',
+            'staff_override' => 'nullable|boolean',
+            'otp'            => 'nullable|string|size:6',
+        ]);
+
+        $emailChanged = strtolower($request->email) !== strtolower($patient->email);
+
+        if ($emailChanged) {
+            $isOverride = $request->boolean('staff_override');
+            $hasOtp = $request->filled('otp');
+
+            if ($isOverride) {
+                // Log Audit Trail for Staff Override
+                AuditLog::create([
+                    'performed_by_id' => $request->user()->id,
+                    'target_user_id'  => $patient->id,
+                    'action'          => 'patient_email_staff_override',
+                    'old_value'       => $patient->email,
+                    'new_value'       => $request->email,
+                    'notes'           => 'Staff override in-person identity verification',
+                ]);
+
+                $patient->email = $request->email;
+                $patient->email_verified_at = now();
+            } elseif ($hasOtp) {
+                if (!$patient->otp_expires_at || Carbon::now()->isAfter($patient->otp_expires_at) || !Hash::check($request->otp, $patient->otp_code)) {
+                    return response()->json(['message' => 'Invalid or expired OTP code.'], 422);
+                }
+
+                $patient->email = $request->email;
+                $patient->email_verified_at = now();
+                $patient->otp_code = null;
+            } else {
+                // Send OTP to new email address
+                $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                $patient->update([
+                    'otp_code'       => Hash::make($otp),
+                    'otp_expires_at' => Carbon::now()->addMinutes(10),
+                ]);
+
+                Log::info("Email update OTP for patient {$patient->id} ({$request->email}): {$otp}");
+                try {
+                    Mail::to($request->email)->send(new OtpMail($otp, $request->name));
+                } catch (\Exception $e) {
+                    Log::error("Failed to send email update OTP: " . $e->getMessage());
+                }
+
+                return response()->json([
+                    'requires_otp' => true,
+                    'message'      => 'OTP sent to new email address',
+                    'email'        => $request->email,
+                ]);
+            }
+        }
+
+        $patient->name = $request->name;
+        $patient->phone = $request->phone ?? '';
+        $patient->save();
+
+        return response()->json([
+            'message' => 'Patient details updated successfully',
+            'patient' => $patient->fresh(),
         ]);
     }
 }

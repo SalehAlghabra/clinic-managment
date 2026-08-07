@@ -93,14 +93,17 @@ class InvoiceController extends Controller
 
             // إشعار للمريض عند التأكيد
             $patient = $invoice->appointment->patient;
-            if ($patient->fcm_token) {
-                $this->firebase->sendNotification(
-                    $patient->fcm_token,
-                    'Payment Confirmed ✅',
-                    "Your payment of {$remainingAmount} has been confirmed via {$request->payment_method}",
-                    ['invoice_id' => (string)$invoice->id, 'type' => 'payment_confirmed']
-                );
-            }
+            app(\App\Services\NotificationService::class)->notify(
+                $patient,
+                'payment_confirmed',
+                'تم تأكيد الدفع ✅',
+                'Payment Confirmed ✅',
+                "تم تأكيد دفع مبلغ \${$remainingAmount} للموعد رقم #{$invoice->appointment_id}",
+                "Your payment of \${$remainingAmount} has been confirmed for appointment #{$invoice->appointment_id}",
+                'invoice',
+                $invoice->id,
+                ['invoice_id' => (string)$invoice->id, 'appointment_id' => (string)$invoice->appointment_id]
+            );
         } else {
             $invoice->update([
                 'payment_status' => $request->payment_status,
@@ -109,8 +112,10 @@ class InvoiceController extends Controller
         }
 
         return response()->json([
-            'message' => 'Payment updated successfully',
-            'invoice' => $invoice->fresh(),
+            'message'        => 'Payment updated successfully',
+            'amount_paid'    => isset($remainingAmount) ? (float)$remainingAmount : (float)$invoice->remaining_amount,
+            'wallet_balance' => (float) $invoice->appointment->patient->fresh()->wallet_balance,
+            'invoice'        => $invoice->fresh(),
         ]);
     }
 
@@ -142,28 +147,58 @@ class InvoiceController extends Controller
         return response()->json($invoices);
     }
 
-    // عرض كل الفواتير (الأدمن)
-    public function index()
+    // عرض كل الفواتير (الأدمن والموظف)
+    public function index(Request $request)
     {
-        $invoices = Invoice::with(
+        $query = Invoice::with([
             'appointment.patient',
             'appointment.doctor.user'
-        )->orderBy('issued_at', 'desc')
+        ]);
+
+        if ($request->boolean('billing_queue')) {
+            $query->where('payment_status', 'unpaid')
+                  ->whereHas('appointment', function ($q) {
+                      $q->where('status', 'completed');
+                  });
+        } elseif ($request->boolean('unpaid')) {
+            $query->where('payment_status', 'unpaid');
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->whereHas('appointment.patient', function ($pq) use ($search) {
+                $pq->where('name', 'like', "%{$search}%")
+                   ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        $invoices = $query->orderBy('issued_at', 'desc')
             ->get()
             ->map(function ($invoice) {
+                $patient = $invoice->appointment->patient;
                 return [
-                    'id'               => $invoice->id,
-                    'appointment_id'   => $invoice->appointment_id,
-                    'patient_name'     => $invoice->appointment->patient->name,
-                    'doctor_name'      => $invoice->appointment->doctor->user->name,
-                    'visit_date'       => $invoice->appointment->appointment_date,
-                    'consultation_fee' => (float) $invoice->deposit_amount,
-                    'total_amount'     => (float) $invoice->total_amount,
-                    'already_paid'     => (float) $invoice->deposit_amount,
-                    'remaining_amount' => (float) $invoice->remaining_amount,
-                    'payment_status'   => $invoice->payment_status,
-                    'payment_method'   => $invoice->payment_method,
-                    'issued_at'        => $invoice->issued_at,
+                    'id'                  => $invoice->id,
+                    'appointment_id'      => $invoice->appointment_id,
+                    'patient_id'          => $patient->id ?? 0,
+                    'patient_name'        => $patient->name ?? 'Unknown',
+                    'patient_email'       => $patient->email ?? '',
+                    'patient_phone'       => $patient->phone ?? '',
+                    'profile_picture'     => $patient->profile_picture ?? null,
+                    'profile_picture_url' => $patient->profile_picture_url ?? null,
+                    'wallet_balance'      => (float) ($patient->wallet_balance ?? 0.0),
+                    'doctor_name'         => $invoice->appointment->doctor->user->name ?? 'Unknown',
+                    'visit_date'          => is_a($invoice->appointment->appointment_date, \Carbon\Carbon::class)
+                        ? $invoice->appointment->appointment_date->format('Y-m-d')
+                        : (string)$invoice->appointment->appointment_date,
+                    'consultation_fee'    => (float) $invoice->deposit_amount,
+                    'additional_cost'     => (float) ($invoice->appointment->additional_cost ?? 0.0),
+                    'additional_note'     => $invoice->appointment->additional_note ?? null,
+                    'total_amount'        => (float) $invoice->total_amount,
+                    'already_paid'        => (float) $invoice->deposit_amount,
+                    'remaining_amount'    => (float) $invoice->remaining_amount,
+                    'payment_status'      => $invoice->payment_status,
+                    'payment_method'      => $invoice->payment_method,
+                    'issued_at'           => $invoice->issued_at,
                 ];
             });
 

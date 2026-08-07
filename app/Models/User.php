@@ -19,6 +19,7 @@ class User extends Authenticatable
         'role',
         'profile_picture',
         'fcm_token',
+        'locale',
         'wallet_balance',
         'violation_count',
         'otp_code',
@@ -47,16 +48,16 @@ class User extends Authenticatable
         ];
     }
 
-    public function getProfilePictureUrlAttribute(): string
+    public function getProfilePictureUrlAttribute(): ?string
     {
         if ($this->profile_picture) {
             if (filter_var($this->profile_picture, FILTER_VALIDATE_URL)) {
                 return $this->profile_picture;
             }
-            return asset('storage/' . ltrim($this->profile_picture, '/'));
+            return url('storage/' . ltrim($this->profile_picture, '/'));
         }
 
-        return asset('images/default-avatar.png');
+        return null;
     }
 
     // علاقة: المستخدم له تفاصيل دكتور

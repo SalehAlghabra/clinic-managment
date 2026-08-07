@@ -144,19 +144,17 @@ class ReportController extends Controller
     // تقرير أداء الأطباء
     public function doctorsReport(Request $request)
     {
-        $request->validate([
-            'from' => 'required|date',
-            'to'   => 'required|date|after_or_equal:from',
-        ]);
+        $from = $request->input('from', '2020-01-01');
+        $to = $request->input('to', Carbon::now()->addYears(2)->toDateString());
 
-        $doctors = DoctorDetail::with('user')->get()->map(function ($doctor) use ($request) {
+        $doctors = DoctorDetail::with('user')->get()->map(function ($doctor) use ($from, $to) {
             $appointments = Appointment::where('doctor_id', $doctor->id)
-                ->whereBetween('appointment_date', [$request->from, $request->to])
+                ->whereBetween('appointment_date', [$from, $to])
                 ->get();
 
-            $revenue = Invoice::whereHas('appointment', function ($q) use ($doctor, $request) {
+            $revenue = Invoice::whereHas('appointment', function ($q) use ($doctor, $from, $to) {
                 $q->where('doctor_id', $doctor->id)
-                  ->whereBetween('appointment_date', [$request->from, $request->to]);
+                  ->whereBetween('appointment_date', [$from, $to]);
             })->where('payment_status', 'paid')->sum('total_amount');
 
             return [

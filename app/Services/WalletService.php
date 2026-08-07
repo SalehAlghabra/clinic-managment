@@ -33,6 +33,30 @@ class WalletService
         return true;
     }
 
+    // خصم يدوي من المحفظة من قبل الأدمن أو الموظف
+    public function deduct(User $user, float $amount, string $description = 'Wallet deduction by staff'): bool
+    {
+        if ($amount <= 0 || $user->wallet_balance < $amount) return false;
+
+        DB::transaction(function () use ($user, $amount, $description) {
+            $balanceBefore = $user->wallet_balance;
+            $balanceAfter  = $balanceBefore - $amount;
+
+            $user->update(['wallet_balance' => $balanceAfter]);
+
+            WalletTransaction::create([
+                'user_id'        => $user->id,
+                'type'           => 'deduct',
+                'amount'         => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after'  => $balanceAfter,
+                'description'    => $description,
+            ]);
+        });
+
+        return true;
+    }
+
     // خصم عند الحجز (رسوم الكشفية)
     public function deductBookingDeposit(User $user, int $appointmentId, float $amount): bool
     {
