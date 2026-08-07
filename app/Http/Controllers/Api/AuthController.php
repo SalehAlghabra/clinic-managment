@@ -480,11 +480,12 @@ class AuthController extends Controller
         }
 
         $request->validate([
-            'name'           => 'required|string|max:255',
-            'email'          => 'required|email|unique:users,email,' . $id,
-            'phone'          => 'nullable|string|max:20',
-            'staff_override' => 'nullable|boolean',
-            'otp'            => 'nullable|string|size:6',
+            'name'            => 'required|string|max:255',
+            'email'           => 'required|email|unique:users,email,' . $id,
+            'phone'           => 'nullable|string|max:20',
+            'staff_override'  => 'nullable|boolean',
+            'otp'             => 'nullable|string|size:6',
+            'profile_picture' => 'sometimes|nullable',
         ]);
 
         $emailChanged = strtolower($request->email) !== strtolower($patient->email);
@@ -537,13 +538,69 @@ class AuthController extends Controller
             }
         }
 
-        $patient->name = $request->name;
+        $patient->name  = $request->name;
         $patient->phone = $request->phone ?? '';
+
+        // Handle profile picture upload
+        if ($request->hasFile('profile_picture')) {
+            $request->validate([
+                'profile_picture' => 'image|mimes:jpeg,png,jpg,gif,svg|max:4096',
+            ]);
+            $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+            $patient->profile_picture = $path;
+        }
+
         $patient->save();
 
         return response()->json([
             'message' => 'Patient details updated successfully',
             'patient' => $patient->fresh(),
+        ]);
+    }
+
+    // تحديث صورة المريض من قبل الموظف أو الأدمن
+    public function updatePatientProfilePicture(Request $request, $id)
+    {
+        $patient = User::where('role', 'patient')->find($id);
+
+        if (!$patient) {
+            return response()->json(['message' => 'Patient not found'], 404);
+        }
+
+        $request->validate([
+            'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:4096',
+        ]);
+
+        $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+        $patient->profile_picture = $path;
+        $patient->save();
+
+        return response()->json([
+            'message'             => 'Profile picture updated successfully',
+            'profile_picture_url' => $patient->fresh()->profile_picture_url,
+        ]);
+    }
+
+    // تحديث صورة ملف تعريف الدكتور أو الموظف من قبل الأدمن
+    public function updateUserProfilePicture(Request $request, $id)
+    {
+        $user = User::whereIn('role', ['doctor', 'receptionist'])->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $request->validate([
+            'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:4096',
+        ]);
+
+        $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+        $user->profile_picture = $path;
+        $user->save();
+
+        return response()->json([
+            'message'             => 'Profile picture updated successfully',
+            'profile_picture_url' => $user->fresh()->profile_picture_url,
         ]);
     }
 }

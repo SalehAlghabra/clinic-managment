@@ -69,6 +69,11 @@ class AppointmentController extends Controller
             'notes'            => 'nullable|string',
         ]);
 
+        $requestedDateTime = Carbon::parse($request->appointment_date . ' ' . $request->appointment_time);
+        if ($requestedDateTime->isPast()) {
+            return response()->json(['message' => 'Cannot book appointments in the past'], 422);
+        }
+
         $doctor = DoctorDetail::with('user')->find($request->doctor_id);
 
         $dayOfWeek = strtolower(date('l', strtotime($request->appointment_date)));
@@ -139,20 +144,7 @@ class AppointmentController extends Controller
         // خصم رسوم الكشفية من المحفظة
         $this->wallet->deductBookingDeposit($patient, $appointment->id, $consultationFee);
 
-        // إشعار للمريض
-        app(\App\Services\NotificationService::class)->notify(
-            $patient,
-            'appointment_booked',
-            'تم حجز الموعد بنجاح 📅',
-            'Appointment Booked Successfully 📅',
-            "تم حجز موعدك بتاريخ {$request->appointment_date} الساعة {$request->appointment_time}",
-            "Your appointment was booked for {$request->appointment_date} at {$request->appointment_time}",
-            'appointment',
-            $appointment->id,
-            ['appointment_id' => (string)$appointment->id]
-        );
-
-        // إشعار للدكتور
+        // إشعار للدكتور برغبة الحجز
         $doctorUser = $doctor->user;
         if ($doctorUser) {
             app(\App\Services\NotificationService::class)->notify(
@@ -204,10 +196,15 @@ class AppointmentController extends Controller
         $current        = Carbon::parse($schedule->start_time);
         $end            = Carbon::parse($schedule->end_time);
 
+        $isToday        = Carbon::parse($request->date)->isToday();
+        $currentTimeStr = Carbon::now()->format('H:i');
+
         while ($current->lt($end)) {
             $time = $current->format('H:i');
             if (!in_array($time, $bookedSlots)) {
-                $availableSlots[] = $time;
+                if (!$isToday || $time > $currentTimeStr) {
+                    $availableSlots[] = $time;
+                }
             }
             $current->addMinutes($schedule->duration_per_patient);
         }
@@ -222,26 +219,101 @@ class AppointmentController extends Controller
     // عرض مواعيد المريض
     public function patientAppointments(Request $request)
     {
-        $appointments = Appointment::with(['doctor.user'])
+        $appointments = Appointment::with(['doctor.user', 'invoice'])
             ->where('patient_id', $request->user()->id)
             ->orderBy('appointment_date', 'desc')
             ->get()
             ->map(function ($appointment) {
                 return [
-                    'id'               => $appointment->id,
-                    'doctor_name'      => $appointment->doctor->user->name,
-                    'specialization'   => $appointment->doctor->specialization,
-                    'consultation_fee' => (float) $appointment->consultation_fee,
-                    'additional_cost'  => (float) $appointment->additional_cost,
-                    'additional_note'  => $appointment->additional_note,
-                    'appointment_date' => $appointment->appointment_date,
-                    'appointment_time' => $appointment->appointment_time,
-                    'status'           => $appointment->status,
-                    'notes'            => $appointment->notes,
+                    'id'                         => $appointment->id,
+                    'doctor_name'                => $appointment->doctor->user->name,
+                    'doctor_profile_picture_url' => $appointment->doctor->user->profile_picture_url,
+                    'specialization'             => $appointment->doctor->specialization,
+                    'consultation_fee'           => (float) $appointment->consultation_fee,
+                    'additional_cost'            => (float) $appointment->additional_cost,
+                    'additional_note'            => $appointment->additional_note,
+                    'appointment_date'           => $appointment->appointment_date,
+                    'appointment_time'           => $appointment->appointment_time,
+                    'status'                     => $appointment->status,
+                    'notes'                      => $appointment->notes,
+                    'is_paid'                    => $appointment->invoice ? ($appointment->invoice->payment_status === 'paid') : false,
+                    'invoice_id'                 => $appointment->invoice?->id,
                 ];
             });
 
         return response()->json($appointments);
+    }
+
+    // دفع المبلغ المتبقي لموعد مكتمل (المريض)
+    public function payRemaining(Request $request, $id)
+    {
+        $user = $request->user();
+        $appointment = Appointment::with(['patient', 'invoice', 'doctor.user'])->find($id);
+
+        if (!$appointment) {
+            return response()->json(['message' => 'Appointment not found'], 404);
+        }
+
+        if ($appointment->patient_id !== $user->id && !in_array($user->role, ['admin', 'receptionist'])) {
+            return response()->json(['message' => 'Unauthorized action'], 403);
+        }
+
+        if ($appointment->status !== 'completed') {
+            return response()->json(['message' => 'Payment is only applicable for completed visits'], 422);
+        }
+
+        $additionalCost = (float) $appointment->additional_cost;
+        if ($additionalCost <= 0) {
+            return response()->json(['message' => 'No remaining balance for this appointment'], 422);
+        }
+
+        $invoice = $appointment->invoice;
+        if ($invoice && $invoice->payment_status === 'paid') {
+            return response()->json(['message' => 'Remaining balance has already been paid'], 422);
+        }
+
+        $patient = $appointment->patient;
+        if ((float) $patient->wallet_balance < $additionalCost) {
+            return response()->json([
+                'message'         => 'Insufficient wallet balance to pay remaining fee',
+                'required_amount' => $additionalCost,
+                'current_balance' => (float) $patient->wallet_balance,
+            ], 422);
+        }
+
+        // خصم المبلغ من المحفظة
+        $this->wallet->deduct(
+            $patient,
+            $additionalCost,
+            'Remaining balance payment for visit #' . $appointment->id
+        );
+
+        if ($invoice) {
+            $invoice->update([
+                'payment_status' => 'paid',
+                'paid_at'        => now(),
+            ]);
+        }
+
+        // إشعار للمريض عند السداد
+        app(\App\Services\NotificationService::class)->notify(
+            $patient,
+            'remaining_paid',
+            'تم دفع المبلغ المتبقي 💳',
+            'Remaining Balance Paid 💳',
+            "تم دفع المبلغ المتبقي ({$additionalCost} $) بنجاح للموعد رقم #{$appointment->id}",
+            "Remaining balance of \${$additionalCost} paid successfully for appointment #{$appointment->id}",
+            'appointment',
+            $appointment->id,
+            ['appointment_id' => (string)$appointment->id]
+        );
+
+        return response()->json([
+            'message'        => 'Remaining balance paid successfully',
+            'paid_amount'    => $additionalCost,
+            'wallet_balance' => (float) $patient->fresh()->wallet_balance,
+            'appointment'    => $appointment->fresh(['invoice']),
+        ]);
     }
 
     // عرض مواعيد الدكتور
@@ -259,16 +331,17 @@ class AppointmentController extends Controller
             ->get()
             ->map(function ($appointment) {
                 return [
-                    'id'               => $appointment->id,
-                    'patient_name'     => $appointment->patient->name,
-                    'patient_phone'    => $appointment->patient->phone,
-                    'consultation_fee' => (float) $appointment->consultation_fee,
-                    'additional_cost'  => (float) $appointment->additional_cost,
-                    'additional_note'  => $appointment->additional_note,
-                    'appointment_date' => $appointment->appointment_date,
-                    'appointment_time' => $appointment->appointment_time,
-                    'status'           => $appointment->status,
-                    'notes'            => $appointment->notes,
+                    'id'                          => $appointment->id,
+                    'patient_name'                => $appointment->patient->name,
+                    'patient_phone'               => $appointment->patient->phone,
+                    'patient_profile_picture_url' => $appointment->patient->profile_picture_url,
+                    'consultation_fee'            => (float) $appointment->consultation_fee,
+                    'additional_cost'             => (float) $appointment->additional_cost,
+                    'additional_note'             => $appointment->additional_note,
+                    'appointment_date'            => $appointment->appointment_date,
+                    'appointment_time'            => $appointment->appointment_time,
+                    'status'                      => $appointment->status,
+                    'notes'                       => $appointment->notes,
                 ];
             });
 
@@ -655,25 +728,27 @@ class AppointmentController extends Controller
             ->get()
             ->map(function ($appointment) {
                 return [
-                    'id'               => $appointment->id,
-                    'patient_id'       => $appointment->patient_id,
-                    'patient_name'     => $appointment->patient->name ?? 'Unknown',
-                    'patient_email'    => $appointment->patient->email ?? '',
-                    'patient_phone'    => $appointment->patient->phone ?? '',
-                    'doctor_id'        => $appointment->doctor_id,
-                    'doctor_name'      => $appointment->doctor->user->name ?? 'Unknown',
-                    'specialization'   => $appointment->doctor->specialization ?? '',
-                    'consultation_fee' => (float) $appointment->consultation_fee,
-                    'additional_cost'  => (float) $appointment->additional_cost,
-                    'additional_note'  => $appointment->additional_note,
-                    'appointment_date' => is_a($appointment->appointment_date, \Carbon\Carbon::class)
+                    'id'                          => $appointment->id,
+                    'patient_id'                  => $appointment->patient_id,
+                    'patient_name'                => $appointment->patient->name ?? 'Unknown',
+                    'patient_email'               => $appointment->patient->email ?? '',
+                    'patient_phone'               => $appointment->patient->phone ?? '',
+                    'patient_profile_picture_url' => $appointment->patient->profile_picture_url ?? null,
+                    'doctor_id'                   => $appointment->doctor_id,
+                    'doctor_name'                 => $appointment->doctor->user->name ?? 'Unknown',
+                    'specialization'              => $appointment->doctor->specialization ?? '',
+                    'doctor_profile_picture_url'  => $appointment->doctor->user->profile_picture_url ?? null,
+                    'consultation_fee'            => (float) $appointment->consultation_fee,
+                    'additional_cost'             => (float) $appointment->additional_cost,
+                    'additional_note'             => $appointment->additional_note,
+                    'appointment_date'            => is_a($appointment->appointment_date, \Carbon\Carbon::class)
                         ? $appointment->appointment_date->format('Y-m-d')
                         : (string)$appointment->appointment_date,
-                    'appointment_time' => $appointment->appointment_time,
-                    'status'           => $appointment->status,
-                    'notes'            => $appointment->notes,
-                    'cancelled_by'     => $appointment->cancelled_by,
-                    'cancelled_at'     => $appointment->cancelled_at,
+                    'appointment_time'            => $appointment->appointment_time,
+                    'status'                      => $appointment->status,
+                    'notes'                       => $appointment->notes,
+                    'cancelled_by'                => $appointment->cancelled_by,
+                    'cancelled_at'                => $appointment->cancelled_at,
                 ];
             });
 

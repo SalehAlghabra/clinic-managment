@@ -159,6 +159,7 @@ class ReportController extends Controller
 
             return [
                 'id'                  => $doctor->id,
+                'user_id'             => $doctor->user_id,
                 'doctor_name'         => $doctor->user->name ?? 'N/A',
                 'profile_picture'     => $doctor->user->profile_picture ?? null,
                 'profile_picture_url' => $doctor->user->profile_picture_url ?? null,

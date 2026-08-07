@@ -28,6 +28,20 @@ Route::get('/doctors/{id}',                 [DoctorController::class, 'show']);
 Route::get('/doctors/{doctorId}/schedules', [DoctorScheduleController::class, 'index']);
 Route::get('/settings',                     [SettingController::class, 'index']);
 
+// Serve public storage media with CORS headers for Flutter Web CanvasKit
+Route::get('/storage/{path}', function ($path) {
+    $filePath = storage_path('app/public/' . $path);
+    if (!file_exists($filePath)) {
+        return response()->json(['message' => 'File not found'], 404);
+    }
+    return response()->file($filePath, [
+        'Access-Control-Allow-Origin'  => '*',
+        'Access-Control-Allow-Methods' => 'GET, OPTIONS',
+        'Access-Control-Allow-Headers' => '*',
+        'Cross-Origin-Resource-Policy' => 'cross-origin',
+    ]);
+})->where('path', '.*');
+
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout',     [AuthController::class, 'logout']);
@@ -48,10 +62,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // المريض فقط
     Route::middleware('role:patient')->group(function () {
-        Route::post('/appointments/preview',     [AppointmentController::class, 'preview']);
-        Route::get('/appointments/my',           [AppointmentController::class, 'patientAppointments']);
-        Route::get('/medical-records/my',        [MedicalRecordController::class, 'patientRecords']);
-        Route::get('/invoices/my',               [InvoiceController::class, 'patientInvoices']);
+        Route::post('/appointments/preview',          [AppointmentController::class, 'preview']);
+        Route::get('/appointments/my',                [AppointmentController::class, 'patientAppointments']);
+        Route::post('/appointments/{id}/pay-remaining',[AppointmentController::class, 'payRemaining']);
+        Route::get('/medical-records/my',             [MedicalRecordController::class, 'patientRecords']);
+        Route::get('/invoices/my',                    [InvoiceController::class, 'patientInvoices']);
 
         // Wallet
         Route::get('/wallet/balance',            [WalletController::class, 'balance']);
@@ -83,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/patients',                    [ReportController::class, 'patientsReport']);
         Route::post('/patients',                           [AuthController::class, 'registerPatient']);
         Route::put('/patients/{id}',                       [AuthController::class, 'updatePatient']);
+        Route::post('/patients/{id}/profile-picture',      [AuthController::class, 'updatePatientProfilePicture']);
         Route::post('/wallet/deposit/{userId}',            [WalletController::class, 'deposit']);
         Route::post('/wallet/deduct/{userId}',             [WalletController::class, 'deduct']);
         Route::get('/wallet/transactions/{userId}',        [WalletController::class, 'patientTransactions']);
@@ -100,8 +116,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/settings',                  [SettingController::class, 'update']);
 
         // Staff management
-        Route::get('/staff/receptionists',         [AuthController::class, 'listReceptionists']);
-        Route::delete('/staff/{id}',               [AuthController::class, 'deleteStaff']);
+        Route::get('/staff/receptionists',                  [AuthController::class, 'listReceptionists']);
+        Route::delete('/staff/{id}',                        [AuthController::class, 'deleteStaff']);
+        Route::post('/staff/{id}/profile-picture',          [AuthController::class, 'updateUserProfilePicture']);
 
         // Doctor
         Route::post('/doctors',                    [DoctorController::class, 'store']);
