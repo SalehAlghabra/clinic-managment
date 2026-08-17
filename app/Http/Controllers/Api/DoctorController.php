@@ -94,23 +94,39 @@ class DoctorController extends Controller
     // تعديل تفاصيل دكتور (الأدمن فقط)
     public function update(Request $request, $id)
     {
-        $doctor = DoctorDetail::find($id);
+        $doctor = DoctorDetail::with('user')->find($id);
 
         if (!$doctor) {
             return response()->json(['message' => 'Doctor not found'], 404);
         }
 
+        $userId = $doctor->user_id;
+
         $request->validate([
+            'name'             => 'sometimes|string|max:255',
+            'email'            => 'sometimes|email|unique:users,email,' . $userId,
+            'phone'            => 'sometimes|nullable|string|max:20',
             'specialization'   => 'sometimes|string|max:255',
             'bio'              => 'nullable|string',
             'consultation_fee' => 'sometimes|numeric|min:0',
         ]);
 
-        $doctor->update($request->only(['specialization', 'bio', 'consultation_fee']));
+        if ($doctor->user) {
+            $userUpdates = array_filter($request->only(['name', 'email', 'phone']), function ($value) {
+                return !is_null($value);
+            });
+            if (!empty($userUpdates)) {
+                $doctor->user->update($userUpdates);
+            }
+        }
+
+        $doctor->update(array_filter($request->only(['specialization', 'bio', 'consultation_fee']), function ($value) {
+            return !is_null($value);
+        }));
 
         return response()->json([
             'message' => 'Doctor updated successfully',
-            'doctor'  => $doctor,
+            'doctor'  => $doctor->fresh(['user']),
         ]);
     }
 

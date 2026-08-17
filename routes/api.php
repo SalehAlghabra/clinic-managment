@@ -117,6 +117,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Staff management
         Route::get('/staff/receptionists',                  [AuthController::class, 'listReceptionists']);
+        Route::put('/staff/{id}',                           [AuthController::class, 'updateStaff']);
         Route::delete('/staff/{id}',                        [AuthController::class, 'deleteStaff']);
         Route::post('/staff/{id}/profile-picture',          [AuthController::class, 'updateUserProfilePicture']);
 

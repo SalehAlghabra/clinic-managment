@@ -640,13 +640,16 @@ class AppointmentController extends Controller
         }
 
         $appointments = Appointment::where('doctor_id', $doctorDetail->id)
-            ->where('appointment_date', $request->date)
+            ->whereDate('appointment_date', $request->date)
             ->whereIn('status', ['pending', 'confirmed'])
             ->with('patient')
             ->get();
 
         if ($appointments->isEmpty()) {
-            return response()->json(['message' => 'No appointments found for this day'], 404);
+            return response()->json([
+                'message'        => 'No active appointments found for this day',
+                'refunded_count' => 0,
+            ], 200);
         }
 
         $refundedCount = 0;
@@ -676,6 +679,8 @@ class AppointmentController extends Controller
                     'Appointment Cancelled 📅',
                     "تم إلغاء موعدك بتاريخ {$request->date} من قبل الطبيب. تم إرجاع المبلغ كاملاً إلى محفظتك.",
                     "Your appointment on {$request->date} has been cancelled by the doctor. Full refund processed.",
+                    'appointment',
+                    $appointment->id,
                     ['appointment_id' => (string)$appointment->id, 'type' => 'doctor_cancelled']
                 );
             }

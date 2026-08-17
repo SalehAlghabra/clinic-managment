@@ -225,6 +225,52 @@ class AuthController extends Controller
         ]);
     }
 
+    // تعديل بيانات الموظف (الاستقبال) من قبل الأدمن
+    public function updateStaff(Request $request, $id)
+    {
+        $staff = User::whereIn('role', ['receptionist', 'doctor'])->find($id);
+
+        if (!$staff) {
+            return response()->json(['message' => 'Staff member not found'], 404);
+        }
+
+        $request->validate([
+            'name'           => 'required|string|max:255',
+            'email'          => 'required|email|unique:users,email,' . $id,
+            'phone'          => 'nullable|string|max:20',
+            'staff_override' => 'nullable|boolean',
+        ]);
+
+        $emailChanged = strtolower($request->email) !== strtolower($staff->email);
+
+        if ($emailChanged) {
+            $isOverride = $request->boolean('staff_override', true);
+
+            if ($isOverride) {
+                AuditLog::create([
+                    'performed_by_id' => $request->user()->id,
+                    'target_user_id'  => $staff->id,
+                    'action'          => 'staff_email_override',
+                    'old_value'       => $staff->email,
+                    'new_value'       => $request->email,
+                    'notes'           => 'Admin staff email edit override',
+                ]);
+            }
+
+            $staff->email = $request->email;
+            $staff->email_verified_at = now();
+        }
+
+        $staff->name  = $request->name;
+        $staff->phone = $request->phone ?? '';
+        $staff->save();
+
+        return response()->json([
+            'message' => 'Staff details updated successfully',
+            'user'    => $staff->fresh(),
+        ]);
+    }
+
     // حذف حساب موظف (الأدمن فقط)
     public function deleteStaff(Request $request, $id)
     {
