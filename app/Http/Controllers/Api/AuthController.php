@@ -67,6 +67,18 @@ class AuthController extends Controller
             ]);
         }
 
+        // تسجيل الدخول المباشر للأدمن والاستقبال بدون الحاجة لرمز OTP
+        if (in_array($user->role, ['admin', 'receptionist'])) {
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'message'  => 'Login successful',
+                'user'     => $user,
+                'token'    => $token,
+                'verified' => true,
+            ]);
+        }
+
         // توليد OTP وإرساله للتحقق لكل عملية دخول
         $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $user->update([
