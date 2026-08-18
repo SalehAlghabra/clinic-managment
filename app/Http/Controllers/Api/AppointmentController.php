@@ -226,6 +226,7 @@ class AppointmentController extends Controller
             ->map(function ($appointment) {
                 return [
                     'id'                         => $appointment->id,
+                    'doctor_id'                  => $appointment->doctor_id,
                     'doctor_name'                => $appointment->doctor->user->name,
                     'doctor_profile_picture_url' => $appointment->doctor->user->profile_picture_url,
                     'specialization'             => $appointment->doctor->specialization,
@@ -580,15 +581,59 @@ class AppointmentController extends Controller
             return response()->json(['message' => 'Appointment not found'], 404);
         }
 
-        if ($appointment->status === 'completed' || $appointment->status === 'cancelled') {
-            return response()->json(['message' => 'Cannot reschedule completed or cancelled appointments'], 422);
+        if ($appointment->status === 'completed' || $appointment->status === 'cancelled' || $appointment->status === 'rejected') {
+            return response()->json(['message' => 'Cannot reschedule completed, cancelled, or rejected appointments'], 422);
         }
 
-        if ($user->role === 'receptionist' && $appointment->status === 'confirmed') {
-            return response()->json(['message' => 'Receptionists cannot reschedule confirmed appointments'], 403);
+        if ($user->role === 'patient') {
+            // Patient can only reschedule their own appointments
+            if ($appointment->patient_id !== $user->id) {
+                return response()->json(['message' => 'Unauthorized action'], 403);
+            }
+
+            // Check 24-hour lead time rule for patient
+            $cancellationHours = (int) Setting::get('cancellation_hours', 24);
+            $dateStr = is_a($appointment->appointment_date, \Carbon\Carbon::class)
+                ? $appointment->appointment_date->format('Y-m-d')
+                : substr((string)$appointment->appointment_date, 0, 10);
+            $appointmentDateTime = Carbon::parse($dateStr . ' ' . $appointment->appointment_time);
+            $hoursUntilAppointment = Carbon::now()->diffInHours($appointmentDateTime, false);
+
+            if ($hoursUntilAppointment <= $cancellationHours) {
+                return response()->json([
+                    'message' => 'Cannot reschedule less than ' . $cancellationHours . ' hours before the appointment. Please cancel or contact reception.'
+                ], 422);
+            }
         }
 
-        // Slot availability
+        // Validate doctor schedule & working hours for the requested date & time
+        $dayOfWeek = strtolower(date('l', strtotime($request->appointment_date)));
+        $schedule  = DoctorSchedule::where('doctor_id', $appointment->doctor_id)
+                                   ->where('day_of_week', $dayOfWeek)
+                                   ->first();
+
+        if (!$schedule) {
+            return response()->json(['message' => 'Doctor is not available on this day'], 422);
+        }
+
+        $startTimeStr = substr($schedule->start_time, 0, 5);
+        $endTimeStr   = substr($schedule->end_time, 0, 5);
+
+        if ($request->appointment_time < $startTimeStr || $request->appointment_time >= $endTimeStr) {
+            return response()->json(['message' => 'Appointment time is outside doctor working hours'], 422);
+        }
+
+        $startTime       = Carbon::parse($schedule->start_time);
+        $appointmentTime = Carbon::parse($request->appointment_time);
+        $minutes         = $startTime->diffInMinutes($appointmentTime);
+
+        if ($minutes % $schedule->duration_per_patient != 0) {
+            return response()->json([
+                'message' => 'Appointment time must be every ' . $schedule->duration_per_patient . ' minutes.'
+            ], 422);
+        }
+
+        // Slot availability (exclude current appointment)
         $exists = Appointment::where('doctor_id', $appointment->doctor_id)
                              ->where('appointment_date', $request->appointment_date)
                              ->where('appointment_time', $request->appointment_time)
@@ -605,18 +650,38 @@ class AppointmentController extends Controller
             'appointment_time' => $request->appointment_time,
         ]);
 
-        if ($appointment->patient) {
-            app(\App\Services\NotificationService::class)->notify(
-                $appointment->patient,
-                'appointment_rescheduled',
-                'تم إعادة جدولة الموعد 📅',
-                'Appointment Rescheduled 📅',
-                "تمت إعادة جدولة موعدك إلى {$request->appointment_date} الساعة {$request->appointment_time}",
-                "Your appointment has been rescheduled to {$request->appointment_date} at {$request->appointment_time}",
-                'appointment',
-                $appointment->id,
-                ['appointment_id' => (string)$appointment->id]
-            );
+        // Notifications
+        if ($user->id === $appointment->patient_id) {
+            // Patient rescheduled -> Notify Doctor
+            $doctorUser = $appointment->doctor->user;
+            if ($doctorUser) {
+                app(\App\Services\NotificationService::class)->notify(
+                    $doctorUser,
+                    'appointment_rescheduled',
+                    'تم إعادة جدولة الموعد 📅',
+                    'Appointment Rescheduled 📅',
+                    "قام المريض بإعادة جدولة الموعد إلى {$request->appointment_date} الساعة {$request->appointment_time}",
+                    "Patient rescheduled appointment to {$request->appointment_date} at {$request->appointment_time}",
+                    'appointment',
+                    $appointment->id,
+                    ['appointment_id' => (string)$appointment->id]
+                );
+            }
+        } else {
+            // Staff rescheduled -> Notify Patient
+            if ($appointment->patient) {
+                app(\App\Services\NotificationService::class)->notify(
+                    $appointment->patient,
+                    'appointment_rescheduled',
+                    'تم إعادة جدولة الموعد 📅',
+                    'Appointment Rescheduled 📅',
+                    "تمت إعادة جدولة موعدك إلى {$request->appointment_date} الساعة {$request->appointment_time}",
+                    "Your appointment has been rescheduled to {$request->appointment_date} at {$request->appointment_time}",
+                    'appointment',
+                    $appointment->id,
+                    ['appointment_id' => (string)$appointment->id]
+                );
+            }
         }
 
         return response()->json([

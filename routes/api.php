@@ -54,10 +54,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications',      [\App\Http\Controllers\Api\NotificationController::class, 'index']);
     Route::delete('/notifications/{id}', [\App\Http\Controllers\Api\NotificationController::class, 'destroy']);
 
-    // المريض، الأدمن، والموظف (حجز وإلغاء المواعيد)
+    // المريض، الأدمن، والموظف (حجز، إلغاء، وإعادة جدولة المواعيد)
     Route::middleware('role:patient,admin,receptionist')->group(function () {
-        Route::post('/appointments',             [AppointmentController::class, 'store']);
-        Route::patch('/appointments/{id}/cancel',[AppointmentController::class, 'cancel']);
+        Route::post('/appointments',                  [AppointmentController::class, 'store']);
+        Route::patch('/appointments/{id}/cancel',     [AppointmentController::class, 'cancel']);
+        Route::patch('/appointments/{id}/reschedule', [AppointmentController::class, 'reschedule']);
     });
 
     // المريض فقط
@@ -90,7 +91,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // الأدمن والموظف (Receptionist)
     Route::middleware('role:admin,receptionist')->group(function () {
         Route::get('/appointments',                        [AppointmentController::class, 'index']);
-        Route::patch('/appointments/{id}/reschedule',      [AppointmentController::class, 'reschedule']);
         Route::get('/invoices',                            [InvoiceController::class, 'index']);
         Route::post('/invoices',                           [InvoiceController::class, 'store']);
         Route::get('/invoices/{appointmentId}',            [InvoiceController::class, 'show']);

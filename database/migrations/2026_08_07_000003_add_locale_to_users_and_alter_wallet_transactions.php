@@ -20,7 +20,9 @@ return new class extends Migration
         }
 
         // 2. Modify type column in wallet_transactions table to string(50)
-        DB::statement("ALTER TABLE `wallet_transactions` MODIFY COLUMN `type` VARCHAR(50) NOT NULL");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE `wallet_transactions` MODIFY COLUMN `type` VARCHAR(50) NOT NULL");
+        }
     }
 
     /**
