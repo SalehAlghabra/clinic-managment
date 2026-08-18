@@ -59,7 +59,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🏥 Clinic Management System</h1>
+            <h1>🏥 Clinova</h1>
         </div>
 
         <p class="message">Hello <strong>{{ $userName }}</strong>,</p>
@@ -76,7 +76,7 @@
         </p>
 
         <div class="footer">
-            <p>© 2026 Clinic Management System. All rights reserved.</p>
+            <p>© 2026 Clinova. All rights reserved.</p>
         </div>
     </div>
 </body>

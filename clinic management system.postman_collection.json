@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "32d678ca-972f-4e01-9215-c8f304a33fea",
-    "name": "clinic management system",
-    "description": "clinic management system",
+    "name": "Clinova API",
+    "description": "Clinova API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "45370472"
   },
