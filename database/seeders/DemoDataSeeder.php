@@ -223,7 +223,7 @@ class DemoDataSeeder extends Seeder
 
         // 8. Seed 5 Historical Visits (3 Completed, 2 Cancelled)
         // Visit 1: Completed (Patient 1 with Doctor 1)
-        Appointment::create([
+        $appt1 = Appointment::create([
             'patient_id' => $patients[0]->id,
             'doctor_id' => $doc1->id,
             'consultation_fee' => 8.00,
@@ -235,8 +235,44 @@ class DemoDataSeeder extends Seeder
             'notes' => 'مراجعة دورية لضغط الدم وحالة القلب',
         ]);
 
+        Invoice::create([
+            'appointment_id' => $appt1->id,
+            'total_amount' => 10.00,
+            'deposit_amount' => 8.00,
+            'remaining_amount' => 2.00,
+            'payment_status' => 'unpaid',
+            'payment_method' => null,
+            'issued_at' => Carbon::now()->subDays(7),
+        ]);
+
+        $record1 = MedicalRecord::create([
+            'appointment_id' => $appt1->id,
+            'patient_id' => $patients[0]->id,
+            'doctor_id' => $doc1->id,
+            'visit_date' => Carbon::now()->subDays(7)->format('Y-m-d'),
+            'symptoms' => 'خفقان في القلب، دوخة طفيفة عند الإجهاد، ارتفاع ضغط الدم.',
+            'diagnosis' => 'ارتفاع ضغط دم أولي خفيف مع تسارع ضربات قلب عرضي.',
+            'doctor_notes' => 'ينصح المريض بالابتعاد عن المنبهات والأملاح الزائدة، وإجراء فحص دوري بعد أسبوعين.',
+        ]);
+
+        Prescription::create([
+            'medical_record_id' => $record1->id,
+            'medication_name' => 'Concor 5mg (Bisoprolol)',
+            'dosage' => 'حبة واحدة يومياً صباحاً',
+            'duration' => '30 يوماً',
+            'instructions' => 'تؤخذ الحبة صباحاً على الريق مع كأس ماء.',
+        ]);
+
+        Prescription::create([
+            'medical_record_id' => $record1->id,
+            'medication_name' => 'Amlodipine 5mg',
+            'dosage' => 'حبة واحدة مساءً بعد العشاء',
+            'duration' => '30 يوماً',
+            'instructions' => 'الالتزام بقياس الضغط مرتين أسبوعياً.',
+        ]);
+
         // Visit 2: Completed (Patient 2 with Doctor 2)
-        Appointment::create([
+        $appt2 = Appointment::create([
             'patient_id' => $patients[1]->id,
             'doctor_id' => $doc2->id,
             'consultation_fee' => 10.00,
@@ -247,8 +283,36 @@ class DemoDataSeeder extends Seeder
             'notes' => 'استشارة بخصوص تنظيف البشرة وحب الشباب',
         ]);
 
+        Invoice::create([
+            'appointment_id' => $appt2->id,
+            'total_amount' => 10.00,
+            'deposit_amount' => 10.00,
+            'remaining_amount' => 0.00,
+            'payment_status' => 'paid',
+            'payment_method' => 'wallet',
+            'issued_at' => Carbon::now()->subDays(5),
+        ]);
+
+        $record2 = MedicalRecord::create([
+            'appointment_id' => $appt2->id,
+            'patient_id' => $patients[1]->id,
+            'doctor_id' => $doc2->id,
+            'visit_date' => Carbon::now()->subDays(5)->format('Y-m-d'),
+            'symptoms' => 'احمرار جلدي وبثور دهنية في منطقة الوجه والخدين.',
+            'diagnosis' => 'حب شباب التهابي من الدرجة المتوسطة (Acne Vulgaris).',
+            'doctor_notes' => 'استخدام غسول طبي مناسب للبشرة الدهنية وتجنب لمس البثور.',
+        ]);
+
+        Prescription::create([
+            'medical_record_id' => $record2->id,
+            'medication_name' => 'Differin Gel 0.1% (Adapalene)',
+            'dosage' => 'دهن موضعي طبقة رقيقة ليلاً',
+            'duration' => '6 أسابيع',
+            'instructions' => 'يوضع في الظلام قبل النوم وتجنب التعرض المباشر للشمس.',
+        ]);
+
         // Visit 3: Completed (Patient 3 with Doctor 3)
-        Appointment::create([
+        $appt3 = Appointment::create([
             'patient_id' => $patients[2]->id,
             'doctor_id' => $doc3->id,
             'consultation_fee' => 12.00,
@@ -258,6 +322,34 @@ class DemoDataSeeder extends Seeder
             'additional_cost' => 3.00,
             'additional_note' => 'فحص قعر العين النظاري',
             'notes' => 'فحص نظر دوري وقياس حدة الإبصار',
+        ]);
+
+        Invoice::create([
+            'appointment_id' => $appt3->id,
+            'total_amount' => 15.00,
+            'deposit_amount' => 12.00,
+            'remaining_amount' => 3.00,
+            'payment_status' => 'unpaid',
+            'payment_method' => null,
+            'issued_at' => Carbon::now()->subDays(4),
+        ]);
+
+        $record3 = MedicalRecord::create([
+            'appointment_id' => $appt3->id,
+            'patient_id' => $patients[2]->id,
+            'doctor_id' => $doc3->id,
+            'visit_date' => Carbon::now()->subDays(4)->format('Y-m-d'),
+            'symptoms' => 'صداع عند القراءة والعمل على الحاسوب، إجهاد في العينين.',
+            'diagnosis' => 'حسر بصر خفيف (Myopia) مع جفاف سطحي بالقرنية.',
+            'doctor_notes' => 'تم عمل وصفة نظارات طبية مع قطرات ترطيب العين.',
+        ]);
+
+        Prescription::create([
+            'medical_record_id' => $record3->id,
+            'medication_name' => 'Systane Ultra Eye Drops',
+            'dosage' => 'قطرة واحدة في كل عين 3 مرات يومياً',
+            'duration' => 'عند اللزوم',
+            'instructions' => 'حفظ القطرة في مكان بارد بعد الفتح.',
         ]);
 
         // Visit 4: Cancelled by Patient (Patient 4 with Doctor 4)

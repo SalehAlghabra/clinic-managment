@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
@@ -336,10 +337,11 @@ class AuthController extends Controller
         $user = $request->user();
 
         $rules = [
-            'phone'            => 'sometimes|nullable|string|max:20',
-            'profile_picture'  => 'sometimes|nullable',
-            'current_password' => 'required_with:password|string',
-            'password'         => 'sometimes|string|min:6|confirmed',
+            'phone'                  => 'sometimes|nullable|string|max:20',
+            'profile_picture'        => 'sometimes|nullable',
+            'remove_profile_picture' => 'sometimes|nullable|boolean',
+            'current_password'       => 'required_with:password|string',
+            'password'               => 'sometimes|string|min:6|confirmed',
         ];
 
         if ($user->role === 'patient' || $user->role === 'admin') {
@@ -365,10 +367,18 @@ class AuthController extends Controller
             $user->phone = $request->phone;
         }
 
-        if ($request->hasFile('profile_picture')) {
+        if ($request->boolean('remove_profile_picture') || $request->input('remove_profile_picture') === '1') {
+            if ($user->profile_picture && Storage::disk('public')->exists($user->profile_picture)) {
+                Storage::disk('public')->delete($user->profile_picture);
+            }
+            $user->profile_picture = null;
+        } elseif ($request->hasFile('profile_picture')) {
             $request->validate([
                 'profile_picture' => 'image|mimes:jpeg,png,jpg,gif,svg|max:4096',
             ]);
+            if ($user->profile_picture && Storage::disk('public')->exists($user->profile_picture)) {
+                Storage::disk('public')->delete($user->profile_picture);
+            }
             $path = $request->file('profile_picture')->store('profile_pictures', 'public');
             $user->profile_picture = $path;
         } elseif ($request->filled('profile_picture') && is_string($request->profile_picture)) {
@@ -625,9 +635,26 @@ class AuthController extends Controller
             return response()->json(['message' => 'Patient not found'], 404);
         }
 
+        if ($request->boolean('remove_profile_picture') || $request->input('remove_profile_picture') === '1') {
+            if ($patient->profile_picture && Storage::disk('public')->exists($patient->profile_picture)) {
+                Storage::disk('public')->delete($patient->profile_picture);
+            }
+            $patient->profile_picture = null;
+            $patient->save();
+
+            return response()->json([
+                'message'             => 'Profile picture removed successfully',
+                'profile_picture_url' => null,
+            ]);
+        }
+
         $request->validate([
             'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:4096',
         ]);
+
+        if ($patient->profile_picture && Storage::disk('public')->exists($patient->profile_picture)) {
+            Storage::disk('public')->delete($patient->profile_picture);
+        }
 
         $path = $request->file('profile_picture')->store('profile_pictures', 'public');
         $patient->profile_picture = $path;
@@ -648,9 +675,26 @@ class AuthController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        if ($request->boolean('remove_profile_picture') || $request->input('remove_profile_picture') === '1') {
+            if ($user->profile_picture && Storage::disk('public')->exists($user->profile_picture)) {
+                Storage::disk('public')->delete($user->profile_picture);
+            }
+            $user->profile_picture = null;
+            $user->save();
+
+            return response()->json([
+                'message'             => 'Profile picture removed successfully',
+                'profile_picture_url' => null,
+            ]);
+        }
+
         $request->validate([
             'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:4096',
         ]);
+
+        if ($user->profile_picture && Storage::disk('public')->exists($user->profile_picture)) {
+            Storage::disk('public')->delete($user->profile_picture);
+        }
 
         $path = $request->file('profile_picture')->store('profile_pictures', 'public');
         $user->profile_picture = $path;

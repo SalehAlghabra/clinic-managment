@@ -76,15 +76,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // الدكتور فقط
     Route::middleware('role:doctor')->group(function () {
-        Route::get('/appointments/doctor',                 [AppointmentController::class, 'doctorAppointments']);
-        Route::post('/medical-records',                    [MedicalRecordController::class, 'store']);
-        Route::post('/medical-records/{id}/prescriptions', [MedicalRecordController::class, 'addPrescription']);
-        Route::patch('/appointments/cancel-day',           [AppointmentController::class, 'cancelDayAppointments']);
-        Route::patch('/appointments/{id}/status',          [AppointmentController::class, 'updateStatus']);
+        Route::get('/appointments/doctor',                          [AppointmentController::class, 'doctorAppointments']);
+        Route::get('/doctor/patients/{patientId}/medical-records',   [MedicalRecordController::class, 'doctorPatientRecords']);
+        Route::post('/medical-records',                             [MedicalRecordController::class, 'store']);
+        Route::post('/medical-records/{id}/prescriptions',          [MedicalRecordController::class, 'addPrescription']);
+        Route::patch('/appointments/cancel-day',                    [AppointmentController::class, 'cancelDayAppointments']);
+        Route::patch('/appointments/{id}/status',                   [AppointmentController::class, 'updateStatus']);
     });
 
-    // الأدمن والدكتور
-    Route::middleware('role:admin,doctor')->group(function () {
+    // الأدمن، الدكتور، والمريض
+    Route::middleware('role:admin,doctor,patient')->group(function () {
         Route::get('/medical-records/{id}',                [MedicalRecordController::class, 'show']);
     });
 

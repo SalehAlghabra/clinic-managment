@@ -326,16 +326,18 @@ class AppointmentController extends Controller
             return response()->json(['message' => 'Doctor profile not found'], 404);
         }
 
-        $appointments = Appointment::with(['patient'])
+        $appointments = Appointment::with(['patient', 'medicalRecord'])
             ->where('doctor_id', $doctorDetail->id)
             ->orderBy('appointment_date', 'desc')
             ->get()
             ->map(function ($appointment) {
                 return [
                     'id'                          => $appointment->id,
-                    'patient_name'                => $appointment->patient->name,
-                    'patient_phone'               => $appointment->patient->phone,
-                    'patient_profile_picture_url' => $appointment->patient->profile_picture_url,
+                    'patient_id'                  => $appointment->patient_id,
+                    'medical_record_id'           => $appointment->medicalRecord?->id,
+                    'patient_name'                => $appointment->patient ? $appointment->patient->name : '',
+                    'patient_phone'               => $appointment->patient ? $appointment->patient->phone : '',
+                    'patient_profile_picture_url' => $appointment->patient ? $appointment->patient->profile_picture_url : null,
                     'consultation_fee'            => (float) $appointment->consultation_fee,
                     'additional_cost'             => (float) $appointment->additional_cost,
                     'additional_note'             => $appointment->additional_note,

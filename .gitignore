@@ -28,3 +28,10 @@ Homestead.json
 .env.production
 .phpactor.json
 auth.json
+PROJECT_SETUP.md
+convert_to_docx.py
+QUICK_START.md
+تقرير_مشروع_إدارة_مجمع_العيادات_Clinova.docx
+نموذج تقرير مشروع السنة الثالثة.docx
+تقرير_مشروع_إدارة_مجمع_العيادات_Clinova.md
+template_extracted.txt
