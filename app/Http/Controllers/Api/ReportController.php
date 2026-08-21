@@ -44,8 +44,8 @@ class ReportController extends Controller
             // إحصائيات مالية
             'financial' => [
                 'total_invoices'        => Invoice::count(),
-                'total_revenue'         => Invoice::where('payment_status', 'paid')->sum('total_amount'),
-                'pending_payments'      => Invoice::where('payment_status', 'unpaid')->sum('total_amount'),
+                'total_revenue'         => (float) (Invoice::where('payment_status', 'paid')->sum('total_amount') + Invoice::where('payment_status', 'unpaid')->sum('deposit_amount')),
+                'pending_payments'      => (float) Invoice::where('payment_status', 'unpaid')->sum('remaining_amount'),
                 'total_deposits'        => WalletTransaction::where('type', 'deposit')->sum('amount'),
                 'total_penalties'       => WalletTransaction::where('type', 'penalty')->sum('amount'),
                 'total_refunds'         => WalletTransaction::whereIn('type', ['refund_full', 'refund_partial'])->sum('amount'),
@@ -112,8 +112,8 @@ class ReportController extends Controller
         $summary = [
             'period'           => ['from' => $request->from, 'to' => $request->to],
             'total_invoices'   => $invoices->count(),
-            'total_revenue'    => $invoices->where('payment_status', 'paid')->sum('total_amount'),
-            'pending_payments' => $invoices->where('payment_status', 'unpaid')->sum('total_amount'),
+            'total_revenue'    => (float) ($invoices->where('payment_status', 'paid')->sum('total_amount') + $invoices->where('payment_status', 'unpaid')->sum('deposit_amount')),
+            'pending_payments' => (float) $invoices->where('payment_status', 'unpaid')->sum('remaining_amount'),
             'cash_payments'    => $invoices->where('payment_method', 'cash')->sum('total_amount'),
             'online_payments'  => $invoices->where('payment_method', 'online')->sum('total_amount'),
             'wallet_payments'  => $invoices->where('payment_method', 'wallet')->sum('total_amount'),
@@ -152,10 +152,17 @@ class ReportController extends Controller
                 ->whereBetween('appointment_date', [$from, $to])
                 ->get();
 
-            $revenue = Invoice::whereHas('appointment', function ($q) use ($doctor, $from, $to) {
+            $paidRevenue = Invoice::whereHas('appointment', function ($q) use ($doctor, $from, $to) {
                 $q->where('doctor_id', $doctor->id)
                   ->whereBetween('appointment_date', [$from, $to]);
             })->where('payment_status', 'paid')->sum('total_amount');
+
+            $depositRevenue = Invoice::whereHas('appointment', function ($q) use ($doctor, $from, $to) {
+                $q->where('doctor_id', $doctor->id)
+                  ->whereBetween('appointment_date', [$from, $to]);
+            })->where('payment_status', 'unpaid')->sum('deposit_amount');
+
+            $revenue = (float) ($paidRevenue + $depositRevenue);
 
             return [
                 'id'                  => $doctor->id,

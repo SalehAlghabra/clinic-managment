@@ -292,8 +292,10 @@ class AppointmentController extends Controller
 
         if ($invoice) {
             $invoice->update([
-                'payment_status' => 'paid',
-                'paid_at'        => now(),
+                'payment_status'   => 'paid',
+                'payment_method'   => 'wallet',
+                'remaining_amount' => 0.00,
+                'paid_at'          => now(),
             ]);
         }
 
