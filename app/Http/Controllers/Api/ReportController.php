@@ -246,4 +246,90 @@ class ReportController extends Controller
             'patients' => $patients,
         ]);
     }
+
+    // تقرير وسجل الحركات المالية الكامل للأدمن وموظف الاستقبال
+    public function financialHistory(Request $request)
+    {
+        $query = WalletTransaction::with(['user', 'appointment.doctor.user'])
+            ->orderBy('created_at', 'desc');
+
+        if ($request->filled('type') && $request->type !== 'all') {
+            if ($request->type === 'refund') {
+                $query->whereIn('type', ['refund_full', 'refund_partial']);
+            } elseif ($request->type === 'consultation') {
+                $query->where('type', 'booking_deduct');
+            } else {
+                $query->where('type', $request->type);
+            }
+        }
+
+        if ($request->filled('from') && $request->filled('to')) {
+            $query->whereBetween('created_at', [
+                Carbon::parse($request->from)->startOfDay(),
+                Carbon::parse($request->to)->endOfDay(),
+            ]);
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('description', 'like', "%{$search}%")
+                  ->orWhere('appointment_id', 'like', "%{$search}%")
+                  ->orWhereHas('user', function ($uq) use ($search) {
+                      $uq->where('name', 'like', "%{$search}%")
+                         ->orWhere('email', 'like', "%{$search}%")
+                         ->orWhere('phone', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('appointment.doctor.user', function ($dq) use ($search) {
+                      $dq->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $transactions = $query->paginate($request->input('per_page', 50));
+
+        $data = collect($transactions->items())->map(function ($tx) {
+            $doctorUser = $tx->appointment?->doctor?->user;
+            $doctorDetail = $tx->appointment?->doctor;
+
+            return [
+                'id'             => $tx->id,
+                'type'           => $tx->type,
+                'amount'         => (float) $tx->amount,
+                'balance_before' => (float) $tx->balance_before,
+                'balance_after'  => (float) $tx->balance_after,
+                'description'    => $tx->description,
+                'appointment_id' => $tx->appointment_id,
+                'created_at'     => $tx->created_at ? $tx->created_at->toDateTimeString() : null,
+                'patient'        => $tx->user ? [
+                    'id'                  => $tx->user->id,
+                    'name'                => $tx->user->name,
+                    'email'               => $tx->user->email,
+                    'phone'               => $tx->user->phone ?? '',
+                    'profile_picture_url' => $tx->user->profile_picture_url,
+                ] : null,
+                'doctor'         => $doctorUser ? [
+                    'id'             => $doctorDetail?->id,
+                    'name'           => $doctorUser->name,
+                    'specialization' => $doctorDetail?->specialization ?? '',
+                ] : null,
+                'appointment'    => $tx->appointment ? [
+                    'id'               => $tx->appointment->id,
+                    'appointment_date' => $tx->appointment->appointment_date,
+                    'appointment_time' => $tx->appointment->appointment_time,
+                    'consultation_fee' => (float) $tx->appointment->consultation_fee,
+                    'additional_cost'  => (float) $tx->appointment->additional_cost,
+                    'status'           => $tx->appointment->status,
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'total'        => $transactions->total(),
+            'current_page' => $transactions->currentPage(),
+            'last_page'    => $transactions->lastPage(),
+            'per_page'     => $transactions->perPage(),
+            'data'         => $data,
+        ]);
+    }
 }

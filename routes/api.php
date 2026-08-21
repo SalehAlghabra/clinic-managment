@@ -104,6 +104,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/wallet/deduct/{userId}',             [WalletController::class, 'deduct']);
         Route::get('/wallet/transactions/{userId}',        [WalletController::class, 'patientTransactions']);
         Route::get('/reports/doctors',                     [ReportController::class, 'doctorsReport']);
+        Route::get('/reports/financial-history',            [ReportController::class, 'financialHistory']);
     });
 
     // الأدمن فقط

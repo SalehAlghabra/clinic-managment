@@ -147,13 +147,14 @@ class AppointmentController extends Controller
         // إشعار للدكتور برغبة الحجز
         $doctorUser = $doctor->user;
         if ($doctorUser) {
+            $formattedApptDate = \Carbon\Carbon::parse($request->appointment_date)->format('d-m-Y');
             app(\App\Services\NotificationService::class)->notify(
                 $doctorUser,
                 'appointment_booked',
                 'طلب موعد جديد 📅',
                 'New Appointment Request 📅',
-                "قام المريض {$patient->name} بحجز موعد بتاريخ {$request->appointment_date} الساعة {$request->appointment_time}",
-                "Patient {$patient->name} booked on {$request->appointment_date} at {$request->appointment_time}",
+                "قام المريض {$patient->name} بحجز موعد بتاريخ {$formattedApptDate} الساعة {$request->appointment_time}",
+                "Patient {$patient->name} booked on {$formattedApptDate} at {$request->appointment_time}",
                 'appointment',
                 $appointment->id,
                 ['appointment_id' => (string)$appointment->id]
@@ -439,13 +440,14 @@ class AppointmentController extends Controller
             );
         } else {
             // confirmed
+            $formattedApptDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('d-m-Y');
             app(\App\Services\NotificationService::class)->notify(
                 $appointment->patient,
                 'appointment_confirmed',
                 'تم تأكيد الموعد ✅',
                 'Appointment Confirmed ✅',
-                "تم تأكيد موعدك الطبي بتاريخ {$appointment->appointment_date}",
-                "Your appointment on {$appointment->appointment_date} has been confirmed",
+                "تم تأكيد موعدك الطبي بتاريخ {$formattedApptDate}",
+                "Your appointment on {$formattedApptDate} has been confirmed",
                 'appointment',
                 $appointment->id,
                 ['appointment_id' => (string)$appointment->id]
@@ -533,14 +535,16 @@ class AppointmentController extends Controller
             'cancelled_at'        => now(),
         ]);
 
+        $formattedApptDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('d-m-Y');
+
         // إشعار للمريض عند الإلغاء
         app(\App\Services\NotificationService::class)->notify(
             $patient,
             'appointment_cancelled',
             'تم إلغاء الموعد ❌',
             'Appointment Cancelled ❌',
-            "تم إلغاء موعدك بتاريخ {$appointment->appointment_date}",
-            "Your appointment on {$appointment->appointment_date} has been cancelled",
+            "تم إلغاء موعدك بتاريخ {$formattedApptDate}",
+            "Your appointment on {$formattedApptDate} has been cancelled",
             'appointment',
             $appointment->id,
             ['appointment_id' => (string)$appointment->id]
@@ -554,8 +558,8 @@ class AppointmentController extends Controller
                 'appointment_cancelled',
                 'تم إلغاء الموعد ❌',
                 'Appointment Cancelled ❌',
-                "تم إلغاء الموعد رقم #{$appointment->id} بتاريخ {$appointment->appointment_date}",
-                "Appointment #{$appointment->id} cancelled on {$appointment->appointment_date}",
+                "تم إلغاء الموعد رقم #{$appointment->id} بتاريخ {$formattedApptDate}",
+                "Appointment #{$appointment->id} cancelled on {$formattedApptDate}",
                 'appointment',
                 $appointment->id,
                 ['appointment_id' => (string)$appointment->id]
@@ -653,6 +657,7 @@ class AppointmentController extends Controller
         ]);
 
         // Notifications
+        $formattedApptDate = \Carbon\Carbon::parse($request->appointment_date)->format('d-m-Y');
         if ($user->id === $appointment->patient_id) {
             // Patient rescheduled -> Notify Doctor
             $doctorUser = $appointment->doctor->user;
@@ -662,8 +667,8 @@ class AppointmentController extends Controller
                     'appointment_rescheduled',
                     'تم إعادة جدولة الموعد 📅',
                     'Appointment Rescheduled 📅',
-                    "قام المريض بإعادة جدولة الموعد إلى {$request->appointment_date} الساعة {$request->appointment_time}",
-                    "Patient rescheduled appointment to {$request->appointment_date} at {$request->appointment_time}",
+                    "قام المريض بإعادة جدولة الموعد إلى {$formattedApptDate} الساعة {$request->appointment_time}",
+                    "Patient rescheduled appointment to {$formattedApptDate} at {$request->appointment_time}",
                     'appointment',
                     $appointment->id,
                     ['appointment_id' => (string)$appointment->id]
@@ -677,8 +682,8 @@ class AppointmentController extends Controller
                     'appointment_rescheduled',
                     'تم إعادة جدولة الموعد 📅',
                     'Appointment Rescheduled 📅',
-                    "تمت إعادة جدولة موعدك إلى {$request->appointment_date} الساعة {$request->appointment_time}",
-                    "Your appointment has been rescheduled to {$request->appointment_date} at {$request->appointment_time}",
+                    "تمت إعادة جدولة موعدك إلى {$formattedApptDate} الساعة {$request->appointment_time}",
+                    "Your appointment has been rescheduled to {$formattedApptDate} at {$request->appointment_time}",
                     'appointment',
                     $appointment->id,
                     ['appointment_id' => (string)$appointment->id]
@@ -739,13 +744,14 @@ class AppointmentController extends Controller
 
             // إشعار لكل مريض متأثر فقط (لا يتم إرسال إشعار للدكتور المنفّذ للإلغاء)
             if ($appointment->patient) {
+                $formattedCancelDate = \Carbon\Carbon::parse($request->date)->format('d-m-Y');
                 app(\App\Services\NotificationService::class)->notify(
                     $appointment->patient,
                     'doctor_cancelled',
                     'تم إلغاء الموعد من قبل الطبيب 📅',
                     'Appointment Cancelled 📅',
-                    "تم إلغاء موعدك بتاريخ {$request->date} من قبل الطبيب. تم إرجاع المبلغ كاملاً إلى محفظتك.",
-                    "Your appointment on {$request->date} has been cancelled by the doctor. Full refund processed.",
+                    "تم إلغاء موعدك بتاريخ {$formattedCancelDate} من قبل الطبيب. تم إرجاع المبلغ كاملاً إلى محفظتك.",
+                    "Your appointment on {$formattedCancelDate} has been cancelled by the doctor. Full refund processed.",
                     'appointment',
                     $appointment->id,
                     ['appointment_id' => (string)$appointment->id, 'type' => 'doctor_cancelled']
